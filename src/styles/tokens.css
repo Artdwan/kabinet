@@ -1,0 +1,84 @@
+/*
+  Design tokens — dark, warm "academic notebook" theme.
+  Derived from the Classical design system (spacing/radius/shadow scale,
+  heading/body font roles, component structure) with its color roles
+  repointed to a warm dark ground, per the product brief.
+*/
+:root {
+  /* surfaces */
+  --color-bg: #14110d;
+  --color-surface: #1c1813;
+  --color-surface-2: #241f19;
+
+  /* text */
+  --color-text: #f6f1ea;
+  --color-text-2: #b6a892;
+  --color-text-3: #8a7c68;
+
+  /* lines */
+  --color-line: #3a322a;
+  --color-divider: #3a322a;
+
+  /* accent + semantic */
+  --color-accent: #e1ad66;
+  --color-accent-2: #e1ad66;
+  --color-ok: #5aa672;
+  --color-bad: #d2604f;
+
+  /* accent tonal ramp, tuned for a dark ground (100 = deepest tint, 900 = lightest) */
+  --color-accent-100: #2c2013;
+  --color-accent-200: #3f2e18;
+  --color-accent-300: #5c451f;
+  --color-accent-400: #7d5e29;
+  --color-accent-500: #a67c3c;
+  --color-accent-600: #c6984f;
+  --color-accent-700: #e1ad66;
+  --color-accent-800: #edc794;
+  --color-accent-900: #f7e2c2;
+
+  /* success ramp */
+  --color-ok-100: #17261c;
+  --color-ok-300: #285c3b;
+  --color-ok-700: #5aa672;
+
+  /* danger ramp */
+  --color-bad-100: #2a1815;
+  --color-bad-300: #5a2e26;
+  --color-bad-700: #d2604f;
+
+  /* neutral ramp (for badges, muted fills) */
+  --color-neutral-100: #201b15;
+  --color-neutral-200: #29231c;
+  --color-neutral-300: #362f26;
+  --color-neutral-800: #cfc4b3;
+  --color-neutral-900: #f6f1ea;
+
+  /* typography */
+  --font-heading: "Cormorant Garamond", Georgia, "Times New Roman", serif;
+  --font-heading-weight: 600;
+  --font-body: "Lora", Georgia, "Times New Roman", serif;
+  --font-ui: -apple-system, "Segoe UI", "Helvetica Neue", Arial, sans-serif;
+
+  /* spacing scale */
+  --space-1: 4.6px;
+  --space-2: 9.2px;
+  --space-3: 13.8px;
+  --space-4: 18.4px;
+  --space-6: 27.6px;
+  --space-8: 36.8px;
+
+  /* radius */
+  --radius-sm: 10px;
+  --radius-md: 12px;
+  --radius-lg: 14px;
+
+  /* elevation */
+  --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.4);
+  --shadow-md: 0 6px 18px rgba(0, 0, 0, 0.38);
+  --shadow-lg: 0 18px 48px rgba(0, 0, 0, 0.5);
+
+  /* layout */
+  --sidebar-w: 244px;
+  --sidebar-w-collapsed: 72px;
+  --header-h: 64px;
+}
