@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { useSearchParams } from "react-router-dom";
 import type { Role } from "../../types";
 import { ROLES } from "../../data/roles";
 import { useStore } from "../../services/StoreContext";
@@ -15,12 +16,14 @@ const DEMO_PASSWORD = "demo1234";
 
 export function AuthPage() {
   const { login, register } = useStore();
-  const [mode, setMode] = useState<"login" | "register">("login");
-  const [role, setRole] = useState<Role>("student");
+  const [searchParams] = useSearchParams();
+  const linkChild = searchParams.get("linkChild");
+  const [mode, setMode] = useState<"login" | "register">(linkChild ? "register" : "login");
+  const [role, setRole] = useState<Role>(linkChild ? "parent" : "student");
   const [name, setName] = useState("");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
-  const [extra, setExtra] = useState("");
+  const [extra, setExtra] = useState(linkChild || "");
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
 
@@ -90,6 +93,12 @@ export function AuthPage() {
           <p style={{ color: "var(--color-text-2)", fontSize: 14, margin: 0 }}>{subtitle}</p>
         </div>
 
+        {linkChild && (
+          <div style={{ border: "1px solid var(--color-accent)", background: "var(--color-accent-100)", color: "var(--color-accent)", borderRadius: "var(--radius-sm)", padding: "10px 12px", fontSize: 12.5 }}>
+            Вы регистрируетесь как родитель — аккаунт будет автоматически привязан к ученику.
+          </div>
+        )}
+
         <div className="seg" style={{ alignSelf: "flex-start" }}>
           <button type="button" className="seg-opt" style={mode === "login" ? { color: "var(--color-accent)", background: "var(--color-accent-100)" } : undefined} onClick={() => setMode("login")}>
             Вход
@@ -111,7 +120,7 @@ export function AuthPage() {
                 justifyContent: "flex-start",
               }}
             >
-              <input type="radio" name="role" checked={role === r.id} onChange={() => setRole(r.id)} />
+              <input type="radio" name="role" checked={role === r.id} disabled={!!linkChild} onChange={() => setRole(r.id)} />
               <span className="dot" />
               <span>
                 <div style={{ fontSize: 13.5 }}>{r.name}</div>
@@ -139,7 +148,7 @@ export function AuthPage() {
           {mode === "register" && (
             <div className="field">
               <label>{EXTRA_FIELD[role].label}</label>
-              <input className="input" value={extra} onChange={(e) => setExtra(e.target.value)} placeholder={EXTRA_FIELD[role].placeholder} />
+              <input className="input" value={extra} onChange={(e) => setExtra(e.target.value)} placeholder={EXTRA_FIELD[role].placeholder} readOnly={!!linkChild} />
             </div>
           )}
 

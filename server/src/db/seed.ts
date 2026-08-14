@@ -156,6 +156,6 @@ function seedMaximProgress() {
 }
 
 seedContent();
-seedDemoAccounts();
+if (process.env.SEED_DEMO === "true") seedDemoAccounts();
 sqlite.close();
 console.log("Seed complete.");

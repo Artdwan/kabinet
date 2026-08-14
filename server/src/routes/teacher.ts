@@ -1,6 +1,7 @@
 import { Router } from "express";
 import { and, eq, inArray, isNull, isNotNull } from "drizzle-orm";
-import { randomUUID } from "node:crypto";
+import { randomUUID, randomBytes } from "node:crypto";
+import bcrypt from "bcryptjs";
 import { db } from "../db/client.js";
 import * as s from "../db/schema.js";
 import { requireAuth, requireRole, type AuthedRequest } from "../auth.js";
@@ -25,6 +26,73 @@ teacherRouter.get("/groups", (req: AuthedRequest, res) => {
     studentIds: db.select().from(s.groupMembers).where(eq(s.groupMembers.groupId, g.id)).all().map((m) => m.studentUserId),
   }));
   res.json(withMembers);
+});
+
+teacherRouter.post("/groups", (req: AuthedRequest, res) => {
+  const teacherId = req.auth!.sub;
+  const { name, subjectId } = req.body || {};
+  if (!name || !String(name).trim()) return res.status(400).json({ error: "Укажите название группы" });
+  if (!subjectId) return res.status(400).json({ error: "Укажите предмет" });
+  const id = randomUUID();
+  db.insert(s.groups).values({ id, name: String(name).trim(), teacherId, subjectId }).run();
+  res.json({ id, name: String(name).trim(), teacherId, subjectId, studentIds: [] });
+});
+
+teacherRouter.post("/groups/:groupId/members", (req: AuthedRequest, res) => {
+  const teacherId = req.auth!.sub;
+  const groupId = pstr(req.params.groupId);
+  const { email } = req.body || {};
+  const group = db.select().from(s.groups).where(and(eq(s.groups.id, groupId), eq(s.groups.teacherId, teacherId))).get();
+  if (!group) return res.status(404).json({ error: "Группа не найдена" });
+  if (!email) return res.status(400).json({ error: "Укажите email ученика" });
+
+  const student = db.select().from(s.users).where(eq(s.users.email, String(email).trim())).get();
+  if (!student || student.role !== "student") return res.status(404).json({ error: "Ученик с таким email не найден" });
+
+  const already = db.select().from(s.groupMembers).where(and(eq(s.groupMembers.groupId, groupId), eq(s.groupMembers.studentUserId, student.id))).get();
+  if (already) return res.status(409).json({ error: "Ученик уже в этой группе" });
+
+  db.insert(s.groupMembers).values({ groupId, studentUserId: student.id }).run();
+  res.json({ ok: true, studentId: student.id, name: `${student.name} ${student.lastName}`.trim() });
+});
+
+teacherRouter.post("/students", (req: AuthedRequest, res) => {
+  const teacherId = req.auth!.sub;
+  const { name, lastName, email, groupId } = req.body || {};
+  if (!name || !String(name).trim()) return res.status(400).json({ error: "Укажите имя ученика" });
+  if (!email || !String(email).includes("@")) return res.status(400).json({ error: "Введите корректный email" });
+
+  const existing = db.select().from(s.users).where(eq(s.users.email, String(email).trim())).get();
+  if (existing) return res.status(409).json({ error: "Такой email уже зарегистрирован" });
+
+  let group: typeof s.groups.$inferSelect | undefined;
+  if (groupId) {
+    group = db.select().from(s.groups).where(and(eq(s.groups.id, groupId), eq(s.groups.teacherId, teacherId))).get();
+    if (!group) return res.status(404).json({ error: "Группа не найдена" });
+  }
+
+  const id = randomUUID();
+  const password = randomBytes(6).toString("base64url");
+  const passwordHash = bcrypt.hashSync(password, 10);
+
+  db.insert(s.users)
+    .values({ id, role: "student", email: String(email).trim(), passwordHash, name: String(name).trim(), lastName: String(lastName || "").trim(), extra: "", createdAt: new Date().toISOString() })
+    .run();
+  db.insert(s.settings).values({ userId: id, instantCheck: true, reduceMotion: false, compactCards: false }).run();
+  db.insert(s.students).values({ userId: id, grade: 11, city: "", goalScore: 85, teacherId }).run();
+  if (group) db.insert(s.groupMembers).values({ groupId: group.id, studentUserId: id }).run();
+
+  res.json({ id, email: String(email).trim(), password, name: String(name).trim(), lastName: String(lastName || "").trim() });
+});
+
+teacherRouter.delete("/groups/:groupId/members/:studentId", (req: AuthedRequest, res) => {
+  const teacherId = req.auth!.sub;
+  const groupId = pstr(req.params.groupId);
+  const studentId = pstr(req.params.studentId);
+  const group = db.select().from(s.groups).where(and(eq(s.groups.id, groupId), eq(s.groups.teacherId, teacherId))).get();
+  if (!group) return res.status(404).json({ error: "Группа не найдена" });
+  db.delete(s.groupMembers).where(and(eq(s.groupMembers.groupId, groupId), eq(s.groupMembers.studentUserId, studentId))).run();
+  res.json({ ok: true });
 });
 
 teacherRouter.get("/roster", (req: AuthedRequest, res) => {
