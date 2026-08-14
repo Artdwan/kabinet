@@ -1,12 +1,43 @@
-import { HOMEWORKS } from "../../data/content";
-import { useStore } from "../../services/StoreContext";
-import { fmtDate, homeworkProgress } from "../../services/mockApi";
-import { allResults, liveStatus } from "../../services/selectors";
+import { useApiData } from "../../services/useApiData";
+import { fmtDate, TODAY_ISO } from "../../services/mockApi";
 import { StatusBadge } from "../../components/StatusBadge";
+import type { HomeworkStatus } from "../../types";
+
+interface ResultRow {
+  id: string;
+  date: string;
+  title: string;
+  minutes: number;
+  score: number;
+}
+
+interface HomeworkRow {
+  id: string;
+  title: string;
+  dueAt: string;
+  done: number;
+  total: number;
+  submittedAt: string | null;
+  reviewedAt: string | null;
+}
+
+interface ProgressData {
+  results: ResultRow[];
+  homeworks: HomeworkRow[];
+}
+
+function statusOf(h: HomeworkRow): HomeworkStatus {
+  if (h.reviewedAt) return "reviewed";
+  if (h.submittedAt) return "submitted";
+  if (h.dueAt < TODAY_ISO) return "overdue";
+  if (h.done > 0) return "in_progress";
+  return "new";
+}
 
 export function ParentReportsPage() {
-  const { store } = useStore();
-  const results = [...allResults(store)].reverse();
+  const { data: progress } = useApiData<ProgressData>("/parent/child/progress");
+  const results = [...(progress?.results ?? [])].reverse();
+  const homeworks = progress?.homeworks ?? [];
 
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 24 }}>
@@ -46,17 +77,14 @@ export function ParentReportsPage() {
             </tr>
           </thead>
           <tbody>
-            {HOMEWORKS.map((h) => {
-              const p = homeworkProgress(h, store.homework[h.id]);
-              return (
-                <tr key={h.id}>
-                  <td>{h.title}</td>
-                  <td>{fmtDate(h.dueAt)}</td>
-                  <td>{p.done}/{p.total}</td>
-                  <td><StatusBadge status={liveStatus(h, store)} /></td>
-                </tr>
-              );
-            })}
+            {homeworks.map((h) => (
+              <tr key={h.id}>
+                <td>{h.title}</td>
+                <td>{fmtDate(h.dueAt)}</td>
+                <td>{h.done}/{h.total}</td>
+                <td><StatusBadge status={statusOf(h)} /></td>
+              </tr>
+            ))}
           </tbody>
         </table>
       </div>

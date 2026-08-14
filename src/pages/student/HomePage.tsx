@@ -30,8 +30,7 @@ export function HomePage() {
   const recommendation = RECOMMENDATIONS[0];
   const feedbackHw = latestFeedbackHomework();
 
-  const lastPlaceId = store.lastPlace?.id;
-  const focusHw = HOMEWORKS.find((h) => h.id === lastPlaceId) || HOMEWORKS.find((h) => h.status === "in_progress") || HOMEWORKS[0];
+  const focusHw = HOMEWORKS.find((h) => store.homework[h.id]?.startedAt && !store.homework[h.id]?.submittedAt) || HOMEWORKS.find((h) => h.status === "in_progress") || HOMEWORKS[0];
   const focusStarted = Boolean(store.homework[focusHw.id]?.startedAt);
 
   return (

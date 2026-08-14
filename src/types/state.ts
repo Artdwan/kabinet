@@ -1,42 +1,51 @@
-// The single persisted "Store" blob — mirrors project/data/mockApi.js EMPTY exactly.
+// Client-side aggregate of a student's own progress, now sourced from
+// GET /api/student/state instead of localStorage.
 
 import type {
   Account,
-  GameProgress,
-  HomeworkState,
-  ReviewCardState,
-  ReviewedEntry,
-  Settings,
-  TechniqueProgress,
-  CtSession,
+  Attempt,
   CtResult,
+  CtSession,
+  GameProgress,
+  Notification,
+  ReviewCardState,
+  Settings,
+  TeacherFeedback,
+  TechniqueProgress,
   TheoryState,
 } from "./index";
 
-export interface LastPlace {
-  kind: "homework";
-  id: string;
-  exerciseId: string;
-}
-
-export interface TeacherState {
-  reviewed: Record<string, ReviewedEntry>;
-  assigned: string[];
+export interface HomeworkState {
+  startedAt: string | null;
+  submittedAt: string | null;
+  reviewedAt?: string | null;
+  attempts: Record<string, Attempt>;
 }
 
 export interface Store {
-  auth: boolean;
-  account: Account;
-  registered: Account[];
-  games: Record<string, GameProgress>;
+  account: Account | null;
+  settings: Settings;
+  homework: Record<string, HomeworkState>;
+  teacherFeedback: Record<string, TeacherFeedback>;
+  tests: Record<string, CtSession>;
+  results: CtResult[];
+  theory: Record<string, TheoryState>;
   techniques: Record<string, TechniqueProgress>;
   reviewCards: Record<string, ReviewCardState>;
-  teacher: TeacherState;
-  homework: Record<string, HomeworkState>;
-  tests: Record<string, CtSession>;
-  theory: Record<string, TheoryState>;
-  results: CtResult[];
-  settings: Settings;
-  readNotifications: string[];
-  lastPlace: LastPlace | null;
+  games: Record<string, GameProgress>;
+  notifications: Notification[];
 }
+
+export const EMPTY_STORE: Store = {
+  account: null,
+  settings: { instantCheck: true, reduceMotion: false, compactCards: false },
+  homework: {},
+  teacherFeedback: {},
+  tests: {},
+  results: [],
+  theory: {},
+  techniques: {},
+  reviewCards: {},
+  games: {},
+  notifications: [],
+};

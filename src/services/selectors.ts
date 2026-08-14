@@ -1,4 +1,4 @@
-import { CT_RESULTS, HOMEWORKS, TOPIC_ACCURACY, TOPICS } from "../data/content";
+import { HOMEWORKS, TOPIC_ACCURACY, TOPICS } from "../data/content";
 import type { CtResult, Homework, HomeworkStatus } from "../types";
 import type { Store } from "../types/state";
 import { homeworkProgress, TODAY_ISO } from "./mockApi";
@@ -14,7 +14,7 @@ export function liveStatus(hw: Homework, store: Store): HomeworkStatus {
 }
 
 export function allResults(store: Store): CtResult[] {
-  return [...CT_RESULTS, ...store.results].sort((a, b) => a.date.localeCompare(b.date));
+  return [...store.results].sort((a, b) => a.date.localeCompare(b.date));
 }
 
 export function avgScore(store: Store): number {

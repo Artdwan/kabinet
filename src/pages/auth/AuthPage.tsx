@@ -1,16 +1,20 @@
 import { useState } from "react";
 import type { Role } from "../../types";
-import { ACCOUNTS, ROLES } from "../../data/roles";
+import { ROLES } from "../../data/roles";
 import { useStore } from "../../services/StoreContext";
+import { ApiError } from "../../services/apiClient";
 
 const EXTRA_FIELD: Record<Role, { label: string; placeholder: string }> = {
   student: { label: "Класс и предметы", placeholder: "Например, 11 класс · математика, химия" },
   teacher: { label: "Предметы и группы", placeholder: "Например, математика · 2 группы" },
-  parent: { label: "Код ученика от преподавателя", placeholder: "Например, ST-1001" },
+  parent: { label: "Код ученика от преподавателя", placeholder: "ID аккаунта ученика" },
 };
 
+const DEMO_EMAIL: Record<Role, string> = { student: "maksim@demo", teacher: "irina@demo", parent: "parent@demo" };
+const DEMO_PASSWORD = "demo1234";
+
 export function AuthPage() {
-  const { mutate } = useStore();
+  const { login, register } = useStore();
   const [mode, setMode] = useState<"login" | "register">("login");
   const [role, setRole] = useState<Role>("student");
   const [name, setName] = useState("");
@@ -18,6 +22,7 @@ export function AuthPage() {
   const [password, setPassword] = useState("");
   const [extra, setExtra] = useState("");
   const [error, setError] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
 
   const title = mode === "login" ? "Вход в кабинет" : "Регистрация";
   const subtitle =
@@ -25,15 +30,23 @@ export function AuthPage() {
       ? "Продолжайте подготовку к ЦТ там, где остановились."
       : "Создайте аккаунт, чтобы получить доступ к заданиям, теории и тестам.";
 
-  const loginAs = (r: Role) => {
-    const account = ACCOUNTS.find((a) => a.role === r) || ACCOUNTS[0];
-    mutate((d) => {
-      d.account = account;
-      d.auth = true;
-    });
+  const handleError = (e: unknown) => {
+    setError(e instanceof ApiError ? e.message : "Не удалось выполнить запрос. Проверьте соединение.");
   };
 
-  const onSubmit = (e: React.FormEvent) => {
+  const loginAs = async (r: Role) => {
+    setError(null);
+    setBusy(true);
+    try {
+      await login(DEMO_EMAIL[r], DEMO_PASSWORD);
+    } catch (e) {
+      handleError(e);
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const onSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!email.includes("@")) {
       setError("Введите корректный email.");
@@ -48,23 +61,18 @@ export function AuthPage() {
       return;
     }
     setError(null);
-    if (mode === "register") {
-      // РЕГИСТРАЦИЯ: позже POST /auth/register; здесь аккаунт кладётся в локальное хранилище.
-      const account = {
-        id: `acc-${Date.now()}`,
-        role,
-        login: email,
-        name: name.split(" ")[0] || name,
-        lastName: name.split(" ").slice(1).join(" "),
-        extra,
-      };
-      mutate((d) => {
-        d.registered.push(account);
-        d.account = account;
-        d.auth = true;
-      });
-    } else {
-      loginAs(role);
+    setBusy(true);
+    try {
+      if (mode === "register") {
+        const [firstName, ...rest] = name.trim().split(" ");
+        await register({ role, email, password, name: firstName, lastName: rest.join(" "), extra });
+      } else {
+        await login(email, password);
+      }
+    } catch (e) {
+      handleError(e);
+    } finally {
+      setBusy(false);
     }
   };
 
@@ -141,17 +149,16 @@ export function AuthPage() {
             </div>
           )}
 
-          <button type="submit" className="btn btn-primary btn-block">
+          <button type="submit" className="btn btn-primary btn-block" disabled={busy}>
             {mode === "login" ? "Войти" : "Создать аккаунт"}
           </button>
-          <button type="button" className="btn btn-secondary btn-block" onClick={() => loginAs(role)}>
+          <button type="button" className="btn btn-secondary btn-block" disabled={busy} onClick={() => loginAs(role)}>
             Войти в демо: {ROLES.find((r) => r.id === role)?.name}
           </button>
         </form>
 
         <p style={{ fontSize: 11, color: "var(--color-text-3)", margin: 0, lineHeight: 1.5 }}>
-          АВТОРИЗАЦИЯ: в рабочем приложении здесь POST /auth/login и /auth/register, роль приходит с сервера и
-          определяет доступные разделы.
+          Данные передаются на сервер и сохраняются в базе данных — прогресс синхронизирован между устройствами.
         </p>
       </div>
     </div>

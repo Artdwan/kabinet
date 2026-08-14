@@ -9,18 +9,8 @@ interface Props {
   files: Attachment[];
   onDraftChange: (text: string) => void;
   onDrawingChange: (dataUrl: string | null) => void;
-  onAddFiles: (files: Attachment[]) => void;
+  onAddFiles: (files: File[]) => void;
   onRemoveFile: (id: string) => void;
-}
-
-function toAttachment(f: File): Attachment {
-  return {
-    id: `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
-    name: f.name,
-    size: f.size,
-    type: f.type,
-    kind: /pdf/.test(f.type) ? "PDF" : "ФОТО",
-  };
 }
 
 function fmtSize(bytes: number): string {
@@ -36,7 +26,7 @@ export function DraftWorkspace({ draftText, drawing, files, onDraftChange, onDra
 
   const handleFiles = (list: FileList | null) => {
     if (!list || !list.length) return;
-    onAddFiles(Array.from(list).map(toAttachment));
+    onAddFiles(Array.from(list));
   };
 
   return (

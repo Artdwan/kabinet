@@ -1,28 +1,62 @@
-import { CHILD_LINK, PARENT_ADVICE, PARENT_WEEK } from "../../data/roles";
-import { HOMEWORKS, STUDENT } from "../../data/content";
-import { useStore } from "../../services/StoreContext";
-import { fmtDate, homeworkProgress, TODAY_ISO } from "../../services/mockApi";
-import { avgScore } from "../../services/selectors";
+import { PARENT_ADVICE } from "../../data/roles";
+import { useApiData } from "../../services/useApiData";
+import { fmtDate } from "../../services/mockApi";
 import { MetricCard } from "../../components/MetricCard";
 
+interface Child {
+  id: string;
+  name: string;
+  lastName: string;
+  grade: number;
+  goalScore: number;
+}
+
+interface HomeworkRow {
+  id: string;
+  title: string;
+  dueAt: string;
+  done: number;
+  total: number;
+  submittedAt: string | null;
+  reviewedAt: string | null;
+}
+
+interface ProgressData {
+  results: { score: number }[];
+  homeworks: HomeworkRow[];
+  latestFeedback: { teacher: string; text: string; grade: string; date: string } | null;
+}
+
+interface WeekDay {
+  day: string;
+  minutes: number;
+  tasks: number;
+}
+
 export function ParentHomePage() {
-  const { store } = useStore();
-  const avg = avgScore(store);
-  const upcoming = HOMEWORKS.filter((h) => h.dueAt >= TODAY_ISO && !store.homework[h.id]?.submittedAt).sort((a, b) => a.dueAt.localeCompare(b.dueAt));
-  const feedbackHw = HOMEWORKS.find((h) => h.feedback);
-  const maxMinutes = Math.max(...PARENT_WEEK.map((d) => d.minutes), 1);
+  const { data: child } = useApiData<Child>("/parent/child");
+  const { data: progress } = useApiData<ProgressData>("/parent/child/progress");
+  const { data: week = [] } = useApiData<WeekDay[]>("/parent/child/week-activity");
+
+  const results = progress?.results ?? [];
+  const avg = results.length ? Math.round(results.reduce((s, r) => s + r.score, 0) / results.length) : 0;
+  const goal = child?.goalScore ?? 85;
+  const upcoming = (progress?.homeworks ?? []).filter((h) => !h.submittedAt).sort((a, b) => a.dueAt.localeCompare(b.dueAt));
+  const maxMinutes = Math.max(...week.map((d) => d.minutes), 1);
+
+  if (!child) return <div className="card-meta">Загрузка…</div>;
 
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 20 }}>
       <div>
-        <h1 style={{ marginBottom: 4 }}>Прогресс: {CHILD_LINK.name}</h1>
-        <p style={{ color: "var(--color-text-2)", margin: 0 }}>{CHILD_LINK.grade} класс · цель ЦТ {STUDENT.goalScore} баллов</p>
+        <h1 style={{ marginBottom: 4 }}>Прогресс: {child.name}</h1>
+        <p style={{ color: "var(--color-text-2)", margin: 0 }}>{child.grade} класс · цель ЦТ {goal} баллов</p>
       </div>
 
       <div data-cols3>
         <MetricCard label="Средний балл ЦТ" value={avg} />
-        <MetricCard label="Цель" value={STUDENT.goalScore} />
-        <MetricCard label="До цели" value={Math.max(0, STUDENT.goalScore - avg)} />
+        <MetricCard label="Цель" value={goal} />
+        <MetricCard label="До цели" value={Math.max(0, goal - avg)} />
       </div>
 
       <div data-cols2>
@@ -30,7 +64,7 @@ export function ParentHomePage() {
           <div className="card">
             <div className="card-title">Активность за неделю</div>
             <div style={{ display: "flex", alignItems: "flex-end", gap: 8, height: 120, marginTop: 10 }}>
-              {PARENT_WEEK.map((d) => (
+              {week.map((d) => (
                 <div key={d.day} style={{ flex: 1, display: "flex", flexDirection: "column", alignItems: "center", gap: 4 }}>
                   <div
                     style={{
@@ -50,25 +84,23 @@ export function ParentHomePage() {
           <div className="card">
             <div className="card-title">Ближайшие дедлайны</div>
             <div style={{ display: "flex", flexDirection: "column", gap: 10, marginTop: 8 }}>
-              {upcoming.slice(0, 4).map((h) => {
-                const p = homeworkProgress(h, store.homework[h.id]);
-                return (
-                  <div key={h.id} style={{ display: "flex", justifyContent: "space-between", fontSize: 13.5 }}>
-                    <span>{h.title}</span>
-                    <span className="card-meta">{fmtDate(h.dueAt)} · {p.done}/{p.total}</span>
-                  </div>
-                );
-              })}
+              {upcoming.length === 0 && <div className="card-meta">Нет незавершённых работ.</div>}
+              {upcoming.slice(0, 4).map((h) => (
+                <div key={h.id} style={{ display: "flex", justifyContent: "space-between", fontSize: 13.5 }}>
+                  <span>{h.title}</span>
+                  <span className="card-meta">{fmtDate(h.dueAt)} · {h.done}/{h.total}</span>
+                </div>
+              ))}
             </div>
           </div>
         </div>
 
         <div style={{ display: "flex", flexDirection: "column", gap: 18 }}>
-          {feedbackHw?.feedback && (
+          {progress?.latestFeedback && (
             <div className="card">
               <div className="card-kicker">Комментарий преподавателя</div>
-              <div className="card-title" style={{ fontSize: 15 }}>{feedbackHw.feedback.teacher}</div>
-              <p className="card-body">{feedbackHw.feedback.text}</p>
+              <div className="card-title" style={{ fontSize: 15 }}>{progress.latestFeedback.teacher}</div>
+              <p className="card-body">{progress.latestFeedback.text}</p>
             </div>
           )}
 

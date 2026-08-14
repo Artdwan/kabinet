@@ -38,6 +38,8 @@ export interface Notification {
   text: string;
   date: string;
   kind: "feedback" | "deadline" | "assign";
+  read: boolean;
+  homeworkId?: string | null;
 }
 
 export interface Recommendation {

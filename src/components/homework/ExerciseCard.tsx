@@ -16,7 +16,7 @@ interface Props {
   onSolution: () => void;
   onDraft: (text: string) => void;
   onDrawing: (dataUrl: string | null) => void;
-  onAddFiles: (files: import("../../types").Attachment[]) => void;
+  onAddFiles: (files: File[]) => void;
   onRemoveFile: (id: string) => void;
 }
 

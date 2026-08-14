@@ -24,16 +24,18 @@ import { ParentHomePage } from "./pages/parent/ParentHomePage";
 import { ParentReportsPage } from "./pages/parent/ParentReportsPage";
 
 function RoleHomeRedirect() {
-  const { store } = useStore();
-  if (store.account.role === "teacher") return <Navigate to="/teacher" replace />;
-  if (store.account.role === "parent") return <Navigate to="/parent" replace />;
+  const { account } = useStore();
+  if (account?.role === "teacher") return <Navigate to="/teacher" replace />;
+  if (account?.role === "parent") return <Navigate to="/parent" replace />;
   return <Navigate to="/home" replace />;
 }
 
 function AppRoutes() {
-  const { store } = useStore();
+  const { account, ready } = useStore();
 
-  if (!store.auth) {
+  if (!ready) return null;
+
+  if (!account) {
     return (
       <Routes>
         <Route path="*" element={<AuthPage />} />

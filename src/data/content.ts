@@ -11,7 +11,6 @@ import type {
   CtTest,
   Homework,
   HomeworkSection,
-  Notification,
   Recommendation,
   Student,
   Subject,
@@ -63,12 +62,6 @@ export const CT_RESULTS: CtResult[] = [
   { id: "res-3", testId: "ct-atom", title: "Строение атома", subjectId: "chem", date: "2026-06-27", score: 73, minutes: 17 },
   { id: "res-4", testId: "ct-full-math", title: "Полный вариант ЦТ, математика", subjectId: "math", date: "2026-07-19", score: 76, minutes: 164 },
   { id: "res-5", testId: "ct-solut", title: "Растворы", subjectId: "chem", date: "2026-08-06", score: 74, minutes: 16 },
-];
-
-export const NOTIFICATIONS: Notification[] = [
-  { id: "nt-1", text: "Ирина Петровна проверила «Тетрадь 01 — Линейные уравнения»", date: "2026-08-11", kind: "feedback" },
-  { id: "nt-2", text: "Дедлайн «Пропорции и дробные уравнения» — 18 августа", date: "2026-08-12", kind: "deadline" },
-  { id: "nt-3", text: "Назначена новая работа по химии: «Растворы»", date: "2026-08-10", kind: "assign" },
 ];
 
 /* ─────────────────────────── ТЕОРИЯ ───────────────────────────

@@ -1,140 +1,10 @@
 /**
- * MOCK-СЕРВИСЫ (service layer).
- * Единственное место, которое знает, где лежит прогресс ученика.
- * Сейчас — localStorage. Позже здесь остаются те же сигнатуры, но внутри — fetch к API.
- *
- * TODO backend / АВТОРИЗАЦИЯ: getSession() → GET /me, login() → POST /auth/login.
- * TODO backend / ПРОГРЕСС:    saveAnswer(), openHint(), openSolution() → PATCH /homeworks/:id/attempts
- * TODO backend / ФАЙЛЫ:       addAttachment() → POST /files (multipart), сейчас хранится только метаинформация.
- * TODO backend / СДАЧА:       submitHomework() → POST /homeworks/:id/submit (уведомление преподавателю).
- * TODO backend / ПРОВЕРКА:    checkAnswer() выполняется на клиенте только в прототипе;
- *                              в бою правильный ответ не должен приходить на клиент.
- * TODO backend / АНАЛИТИКА:   track() → POST /analytics/events.
+ * Pure, stateless helpers shared across pages: formatting, and the same
+ * checkAnswer/solutionAvailability/homeworkProgress rules the server uses
+ * (kept here too so the UI can update optimistically before the API call
+ * that actually persists the result comes back — see services/actions.ts).
  */
 import type { Attempt, Exercise, ExerciseStatus, Homework } from "../types";
-import type { Store } from "../types/state";
-import { ACCOUNTS } from "../data/roles";
-import { readJSON, writeJSON, removeKey } from "./storage";
-
-const KEY = "store";
-
-export const EMPTY: Store = {
-  auth: true, // прототип открывается сразу в авторизованном кабинете
-  account: ACCOUNTS[0],
-  registered: [],
-  games: {},
-  techniques: {},
-  reviewCards: {},
-  teacher: { reviewed: {}, assigned: [] },
-  homework: {},
-  tests: {},
-  theory: {},
-  results: [],
-  settings: { instantCheck: true, reduceMotion: false, compactCards: false },
-  readNotifications: [],
-  lastPlace: null,
-};
-
-function clone<T>(v: T): T {
-  return JSON.parse(JSON.stringify(v));
-}
-
-/** Демонстрационное состояние при первом запуске: работа начата, тест по химии не завершён. */
-function seed(): Store {
-  const s = clone(EMPTY);
-  s.homework["hw-02"] = {
-    startedAt: "2026-08-08T18:20:00",
-    submittedAt: null,
-    attempts: {
-      "hw02-a1": { value: "9", status: "correct", attempts: 1, hintsOpened: 0, solutionOpened: false, draftText: "", drawing: null, files: [] },
-      "hw02-a2": { value: "56", status: "correct", attempts: 2, hintsOpened: 1, solutionOpened: false, draftText: "5k + 7k = 96", drawing: null, files: [] },
-      "hw02-a3": { value: "o2", status: "correct", attempts: 1, hintsOpened: 0, solutionOpened: false, draftText: "", drawing: null, files: [] },
-      "hw02-b1": { value: "4", status: "wrong", attempts: 1, hintsOpened: 1, solutionOpened: false, draftText: "", drawing: null, files: [] },
-    },
-  };
-  s.homework["hw-01"] = {
-    startedAt: "2026-07-21T17:00:00",
-    submittedAt: "2026-07-27T21:10:00",
-    reviewedAt: "2026-08-11T12:00:00",
-    attempts: {
-      "hw01-a1": { value: "8", status: "correct", attempts: 1, hintsOpened: 0, solutionOpened: false, draftText: "", drawing: null, files: [] },
-      "hw01-a2": { value: "1", status: "wrong", attempts: 3, hintsOpened: 2, solutionOpened: true, draftText: "", drawing: null, files: [] },
-      "hw01-a3": { value: "6", status: "correct", attempts: 1, hintsOpened: 0, solutionOpened: false, draftText: "", drawing: null, files: [] },
-    },
-  };
-  s.homework["hw-04"] = {
-    startedAt: "2026-08-05T19:00:00",
-    submittedAt: "2026-08-09T20:30:00",
-    attempts: {
-      "hw04-a1": { value: "18", status: "manual", attempts: 1, hintsOpened: 0, solutionOpened: false, draftText: "", drawing: null, files: [] },
-      "hw04-a2": { value: "o1", status: "manual", attempts: 1, hintsOpened: 0, solutionOpened: false, draftText: "", drawing: null, files: [] },
-      "hw04-a3": { value: "уменьшается", status: "manual", attempts: 1, hintsOpened: 0, solutionOpened: false, draftText: "", drawing: null, files: [] },
-    },
-  };
-  s.tests["ct-solut"] = { testId: "ct-solut", startedAt: "2026-08-12T19:40:00", answers: { q1: "15", q2: "o1" }, flagged: { q4: true }, current: 2, elapsed: 214, finishedAt: null, only: null };
-  s.theory["th-prop"] = { progress: 60, favorite: true, read: false, lastBlock: 4, quiz: {} };
-  s.theory["th-solut"] = { progress: 0, favorite: false, read: false, lastBlock: 0, quiz: {} };
-  s.lastPlace = { kind: "homework", id: "hw-02", exerciseId: "hw02-b1" };
-  s.games = {
-    "tr-equations": { best: 7, played: 3, lastScore: 5 },
-    "tr-color": { best: 8, played: 1, lastScore: 8 },
-  };
-  s.techniques = { "tq-feynman": { practiced: 2, done: [0, 1] } };
-  return s;
-}
-
-/**
- * Мягкая миграция уже сохранённого состояния: дополняем недостающие ключи демо-сидом
- * и вычищаем мусор отладочных прогонов (результаты без единого ответа).
- * TODO backend: на сервере эту роль играют миграции схемы и валидация при записи CtResult.
- */
-function backfill<T>(target: Record<string, T> | undefined, base: Record<string, T>): Record<string, T> {
-  const out = target || {};
-  Object.keys(base).forEach((id) => {
-    if (!out[id]) out[id] = base[id];
-  });
-  return out;
-}
-
-function migrate(s: Store): Store {
-  const base = seed();
-  s.games = backfill(s.games, base.games);
-  s.techniques = backfill(s.techniques, base.techniques);
-  s.reviewCards = backfill(s.reviewCards, base.reviewCards);
-  if (!s.account || !s.account.role) s.account = base.account;
-  if (!s.settings) s.settings = base.settings;
-  s.results = (s.results || []).filter((r) => r && r.score > 0);
-  Object.keys(s.tests || {}).forEach((id) => {
-    const t = s.tests[id];
-    if (t && t.finishedAt && !Object.keys(t.answers || {}).length) delete s.tests[id];
-  });
-  return s;
-}
-
-export const mockApi = {
-  load(): Store {
-    const raw = readJSON<Store | null>(KEY, null);
-    if (raw) {
-      const saved = Object.assign(clone(EMPTY), raw);
-      return this.save(migrate(saved));
-    }
-    const s = seed();
-    this.save(s);
-    return s;
-  },
-  save(store: Store): Store {
-    writeJSON(KEY, store);
-    return store;
-  },
-  reset(): Store {
-    removeKey(KEY);
-    return this.load();
-  },
-  /** АНАЛИТИКА: сюда позже уходит событие на сервер. TODO backend: POST /analytics/events */
-  track(event: string, payload?: Record<string, unknown>): void {
-    if (typeof console !== "undefined" && console.debug) console.debug("[analytics]", event, payload || {});
-  },
-};
 
 export const emptyAttempt = (): Attempt => ({
   value: "",
@@ -148,7 +18,6 @@ export const emptyAttempt = (): Attempt => ({
   draftOpen: false,
 });
 
-/** ПРОВЕРКА ОТВЕТА. TODO backend: на сервере — POST /exercises/:id/check. */
 export function checkAnswer(exercise: Exercise, value: string | number | string[]): ExerciseStatus {
   if (exercise.type === "manual") return "manual";
   if (value === "" || value == null || (Array.isArray(value) && !value.length)) return "not_started";
@@ -178,7 +47,6 @@ export interface SolutionAvailability {
   note: string;
 }
 
-/** Доступность полного решения — правила задаёт преподаватель (Solution.policy). */
 export function solutionAvailability(exercise: Exercise, attempt: Attempt, submitted: boolean): SolutionAvailability {
   const p = exercise.solutionPolicy || { mode: "after_submit" as const };
   if (p.mode === "immediate") return { available: true, note: "Решение открыто преподавателем сразу" };

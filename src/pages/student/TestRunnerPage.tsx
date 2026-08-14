@@ -64,9 +64,9 @@ export function TestRunnerPage() {
     setVisited((v) => new Set(v).add(i));
   };
 
-  const finish = () => {
+  const finish = async () => {
     actions.tickElapsed(testId, localElapsed);
-    const { counted } = actions.finishTest(testId);
+    const { counted } = await actions.finishTest(testId);
     setConfirmOpen(false);
     navigate(`/tests/${testId}/result`, { replace: true, state: { counted } });
   };

@@ -1,8 +1,7 @@
 import { useLocation, useParams } from "react-router-dom";
-import type { Store } from "../types/state";
 import { homeworkById, ctTestById, THEORY_MATERIALS } from "../data/content";
 
-export function usePageTitle(_store: Store): { title: string; crumbs: string[] } {
+export function usePageTitle(): { title: string; crumbs: string[] } {
   const location = useLocation();
   const params = useParams();
   const path = location.pathname;
