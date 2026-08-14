@@ -37,6 +37,8 @@ export const groups = sqliteTable("groups", {
   name: text("name").notNull(),
   teacherId: text("teacher_id").notNull().references(() => users.id),
   subjectId: text("subject_id").notNull(),
+  grade: integer("grade"),
+  description: text("description"),
 });
 
 export const groupMembers = sqliteTable(

@@ -30,12 +30,14 @@ teacherRouter.get("/groups", (req: AuthedRequest, res) => {
 
 teacherRouter.post("/groups", (req: AuthedRequest, res) => {
   const teacherId = req.auth!.sub;
-  const { name, subjectId } = req.body || {};
+  const { name, subjectId, grade, description } = req.body || {};
   if (!name || !String(name).trim()) return res.status(400).json({ error: "Укажите название группы" });
   if (!subjectId) return res.status(400).json({ error: "Укажите предмет" });
   const id = randomUUID();
-  db.insert(s.groups).values({ id, name: String(name).trim(), teacherId, subjectId }).run();
-  res.json({ id, name: String(name).trim(), teacherId, subjectId, studentIds: [] });
+  const gradeValue = grade === undefined || grade === null || grade === "" ? null : Number(grade);
+  const descriptionValue = description && String(description).trim() ? String(description).trim() : null;
+  db.insert(s.groups).values({ id, name: String(name).trim(), teacherId, subjectId, grade: gradeValue, description: descriptionValue }).run();
+  res.json({ id, name: String(name).trim(), teacherId, subjectId, grade: gradeValue, description: descriptionValue, studentIds: [] });
 });
 
 teacherRouter.post("/groups/:groupId/members", (req: AuthedRequest, res) => {

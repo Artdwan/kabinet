@@ -15,6 +15,13 @@
       "when": 1786663890035,
       "tag": "0001_spotty_sheva_callister",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "6",
+      "when": 1786722191046,
+      "tag": "0002_sharp_red_shift",
+      "breakpoints": true
     }
   ]
 }

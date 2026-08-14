@@ -23,6 +23,8 @@ interface GroupRow {
   id: string;
   name: string;
   subjectId: string;
+  grade: number | null;
+  description: string | null;
   studentIds: string[];
 }
 
@@ -48,6 +50,8 @@ export function TeacherStudentsPage() {
 
   const [newGroupName, setNewGroupName] = useState("");
   const [newGroupSubject, setNewGroupSubject] = useState(SUBJECTS[0]?.id ?? "");
+  const [newGroupGrade, setNewGroupGrade] = useState("");
+  const [newGroupDescription, setNewGroupDescription] = useState("");
   const [creatingGroup, setCreatingGroup] = useState(false);
 
   const [addEmail, setAddEmail] = useState("");
@@ -69,8 +73,15 @@ export function TeacherStudentsPage() {
     if (!newGroupName.trim()) return;
     setCreatingGroup(true);
     try {
-      await api.post("/teacher/groups", { name: newGroupName.trim(), subjectId: newGroupSubject });
+      await api.post("/teacher/groups", {
+        name: newGroupName.trim(),
+        subjectId: newGroupSubject,
+        grade: newGroupGrade.trim() ? Number(newGroupGrade) : undefined,
+        description: newGroupDescription.trim() || undefined,
+      });
       setNewGroupName("");
+      setNewGroupGrade("");
+      setNewGroupDescription("");
       show("Группа создана", "ok");
       reloadGroups();
     } catch (e) {
@@ -145,6 +156,14 @@ export function TeacherStudentsPage() {
             ))}
           </select>
         </div>
+        <div className="field" style={{ minWidth: 90 }}>
+          <label>Класс</label>
+          <input className="input" type="number" min={1} max={11} value={newGroupGrade} onChange={(e) => setNewGroupGrade(e.target.value)} placeholder="11" />
+        </div>
+        <div className="field" style={{ minWidth: 220, flex: 1 }}>
+          <label>Описание (необязательно)</label>
+          <input className="input" value={newGroupDescription} onChange={(e) => setNewGroupDescription(e.target.value)} placeholder="Например, подготовка к ЦТ, вечерняя группа" />
+        </div>
         <button type="button" className="btn btn-primary btn-sm" disabled={!newGroupName.trim() || creatingGroup} onClick={createGroup}>
           Создать группу
         </button>
@@ -153,9 +172,13 @@ export function TeacherStudentsPage() {
       <ChipRow>
         <Chip active={group === null} onClick={() => setGroup(null)}>Все группы</Chip>
         {groups.map((g) => (
-          <Chip key={g.id} active={group === g.id} onClick={() => setGroup(g.id)}>{g.name}</Chip>
+          <Chip key={g.id} active={group === g.id} onClick={() => setGroup(g.id)}>{g.name}{g.grade ? ` · ${g.grade} кл.` : ""}</Chip>
         ))}
       </ChipRow>
+
+      {group && groups.find((g) => g.id === group)?.description && (
+        <div className="card-meta">{groups.find((g) => g.id === group)?.description}</div>
+      )}
 
       {groups.length === 0 && (
         <div className="card-meta">Групп пока нет — создайте первую, чтобы добавлять учеников.</div>
