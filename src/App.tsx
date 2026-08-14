@@ -18,6 +18,7 @@ import { GamePage } from "./pages/student/games/GamePage";
 import { SettingsPage } from "./pages/student/SettingsPage";
 import { TeacherHomePage } from "./pages/teacher/TeacherHomePage";
 import { TeacherStudentsPage } from "./pages/teacher/TeacherStudentsPage";
+import { TeacherGroupsPage } from "./pages/teacher/TeacherGroupsPage";
 import { TeacherReviewPage } from "./pages/teacher/TeacherReviewPage";
 import { TeacherAssignPage } from "./pages/teacher/TeacherAssignPage";
 import { ParentHomePage } from "./pages/parent/ParentHomePage";
@@ -63,6 +64,7 @@ function AppRoutes() {
 
         <Route path="teacher" element={<TeacherHomePage />} />
         <Route path="teacher/students" element={<TeacherStudentsPage />} />
+        <Route path="teacher/groups" element={<TeacherGroupsPage />} />
         <Route path="teacher/review" element={<TeacherReviewPage />} />
         <Route path="teacher/assign" element={<TeacherAssignPage />} />
 

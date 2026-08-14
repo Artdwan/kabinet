@@ -83,7 +83,10 @@ export function TeacherHomePage() {
       </div>
 
       <div className="card">
-        <div className="card-title">Группы</div>
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+          <div className="card-title">Группы</div>
+          <Link to="/teacher/groups" className="btn btn-ghost btn-sm">Все</Link>
+        </div>
         <div style={{ display: "flex", flexDirection: "column", gap: 8, marginTop: 8 }}>
           {groups.length === 0 && <div className="card-meta">Групп пока нет.</div>}
           {groups.map((g) => (

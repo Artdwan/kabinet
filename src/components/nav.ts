@@ -11,6 +11,7 @@ import {
   LayoutGrid,
   Library,
   ListChecks,
+  UsersRound,
   Users,
 } from "lucide-react";
 import type { Role } from "../types";
@@ -27,6 +28,7 @@ export function navForRole(role: Role, badges: { homework?: number; review?: num
   if (role === "teacher") {
     return [
       { to: "/teacher", label: "Обзор", shortLabel: "Обзор", icon: LayoutGrid },
+      { to: "/teacher/groups", label: "Группы", shortLabel: "Группы", icon: UsersRound },
       { to: "/teacher/students", label: "Ученики", shortLabel: "Ученики", icon: Users },
       { to: "/teacher/review", label: "Проверка работ", shortLabel: "Проверка", icon: ClipboardCheck, badge: badges.review },
       { to: "/teacher/assign", label: "Материалы", shortLabel: "Материалы", icon: FolderOpen },

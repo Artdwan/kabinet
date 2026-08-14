@@ -4,7 +4,6 @@ import { fmtDate } from "../../services/mockApi";
 import { api, ApiError } from "../../services/apiClient";
 import { useToast } from "../../services/ToastContext";
 import { Chip, ChipRow } from "../../components/Chip";
-import { SUBJECTS } from "../../data/content";
 
 interface RosterRow {
   id: string;
@@ -48,18 +47,10 @@ export function TeacherStudentsPage() {
   const { data: groups = [], reload: reloadGroups } = useApiData<GroupRow[]>("/teacher/groups");
   const { show } = useToast();
 
-  const [newGroupName, setNewGroupName] = useState("");
-  const [newGroupSubject, setNewGroupSubject] = useState(SUBJECTS[0]?.id ?? "");
-  const [newGroupGrade, setNewGroupGrade] = useState("");
-  const [newGroupDescription, setNewGroupDescription] = useState("");
-  const [creatingGroup, setCreatingGroup] = useState(false);
-
-  const [addEmail, setAddEmail] = useState("");
-  const [addingStudent, setAddingStudent] = useState(false);
-
   const [newStudentName, setNewStudentName] = useState("");
   const [newStudentLastName, setNewStudentLastName] = useState("");
   const [newStudentEmail, setNewStudentEmail] = useState("");
+  const [newStudentGroup, setNewStudentGroup] = useState("");
   const [creatingStudent, setCreatingStudent] = useState(false);
   const [createdStudent, setCreatedStudent] = useState<CreatedStudent | null>(null);
   const [copiedField, setCopiedField] = useState<string | null>(null);
@@ -69,44 +60,6 @@ export function TeacherStudentsPage() {
     return groups.find((g) => g.id === group)?.studentIds.includes(s.id);
   });
 
-  const createGroup = async () => {
-    if (!newGroupName.trim()) return;
-    setCreatingGroup(true);
-    try {
-      await api.post("/teacher/groups", {
-        name: newGroupName.trim(),
-        subjectId: newGroupSubject,
-        grade: newGroupGrade.trim() ? Number(newGroupGrade) : undefined,
-        description: newGroupDescription.trim() || undefined,
-      });
-      setNewGroupName("");
-      setNewGroupGrade("");
-      setNewGroupDescription("");
-      show("Группа создана", "ok");
-      reloadGroups();
-    } catch (e) {
-      show(e instanceof ApiError ? e.message : "Не удалось создать группу", "bad");
-    } finally {
-      setCreatingGroup(false);
-    }
-  };
-
-  const addStudent = async () => {
-    if (!group || !addEmail.trim()) return;
-    setAddingStudent(true);
-    try {
-      await api.post(`/teacher/groups/${group}/members`, { email: addEmail.trim() });
-      setAddEmail("");
-      show("Ученик добавлен в группу", "ok");
-      reloadGroups();
-      reloadRoster();
-    } catch (e) {
-      show(e instanceof ApiError ? e.message : "Не удалось добавить ученика", "bad");
-    } finally {
-      setAddingStudent(false);
-    }
-  };
-
   const createStudent = async () => {
     if (!newStudentName.trim() || !newStudentEmail.trim()) return;
     setCreatingStudent(true);
@@ -115,7 +68,7 @@ export function TeacherStudentsPage() {
         name: newStudentName.trim(),
         lastName: newStudentLastName.trim(),
         email: newStudentEmail.trim(),
-        groupId: group || undefined,
+        groupId: newStudentGroup || undefined,
       });
       setCreatedStudent(created);
       setNewStudentName("");
@@ -144,47 +97,6 @@ export function TeacherStudentsPage() {
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
       <div className="card" style={{ display: "flex", flexWrap: "wrap", gap: 12, alignItems: "flex-end" }}>
-        <div className="field" style={{ minWidth: 200 }}>
-          <label>Новая группа</label>
-          <input className="input" value={newGroupName} onChange={(e) => setNewGroupName(e.target.value)} placeholder="Например, 10 «Б» · химия" />
-        </div>
-        <div className="field" style={{ minWidth: 160 }}>
-          <label>Предмет</label>
-          <select className="input" value={newGroupSubject} onChange={(e) => setNewGroupSubject(e.target.value)}>
-            {SUBJECTS.map((sub) => (
-              <option key={sub.id} value={sub.id}>{sub.name}</option>
-            ))}
-          </select>
-        </div>
-        <div className="field" style={{ minWidth: 90 }}>
-          <label>Класс</label>
-          <input className="input" type="number" min={1} max={11} value={newGroupGrade} onChange={(e) => setNewGroupGrade(e.target.value)} placeholder="11" />
-        </div>
-        <div className="field" style={{ minWidth: 220, flex: 1 }}>
-          <label>Описание (необязательно)</label>
-          <input className="input" value={newGroupDescription} onChange={(e) => setNewGroupDescription(e.target.value)} placeholder="Например, подготовка к ЦТ, вечерняя группа" />
-        </div>
-        <button type="button" className="btn btn-primary btn-sm" disabled={!newGroupName.trim() || creatingGroup} onClick={createGroup}>
-          Создать группу
-        </button>
-      </div>
-
-      <ChipRow>
-        <Chip active={group === null} onClick={() => setGroup(null)}>Все группы</Chip>
-        {groups.map((g) => (
-          <Chip key={g.id} active={group === g.id} onClick={() => setGroup(g.id)}>{g.name}{g.grade ? ` · ${g.grade} кл.` : ""}</Chip>
-        ))}
-      </ChipRow>
-
-      {group && groups.find((g) => g.id === group)?.description && (
-        <div className="card-meta">{groups.find((g) => g.id === group)?.description}</div>
-      )}
-
-      {groups.length === 0 && (
-        <div className="card-meta">Групп пока нет — создайте первую, чтобы добавлять учеников.</div>
-      )}
-
-      <div className="card" style={{ display: "flex", flexWrap: "wrap", gap: 12, alignItems: "flex-end" }}>
         <div className="field" style={{ minWidth: 160 }}>
           <label>Создать ученика — имя</label>
           <input className="input" value={newStudentName} onChange={(e) => setNewStudentName(e.target.value)} placeholder="Максим" />
@@ -197,12 +109,18 @@ export function TeacherStudentsPage() {
           <label>Email</label>
           <input className="input" type="email" value={newStudentEmail} onChange={(e) => setNewStudentEmail(e.target.value)} placeholder="ученик@example.com" />
         </div>
+        <div className="field" style={{ minWidth: 180 }}>
+          <label>Группа (необязательно)</label>
+          <select className="input" value={newStudentGroup} onChange={(e) => setNewStudentGroup(e.target.value)}>
+            <option value="">Без группы</option>
+            {groups.map((g) => (
+              <option key={g.id} value={g.id}>{g.name}</option>
+            ))}
+          </select>
+        </div>
         <button type="button" className="btn btn-primary btn-sm" disabled={!newStudentName.trim() || !newStudentEmail.trim() || creatingStudent} onClick={createStudent}>
           Создать
         </button>
-        <span className="card-meta" style={{ width: "100%" }}>
-          {group ? `Будет сразу добавлен в «${groups.find((g) => g.id === group)?.name}».` : "Выберите группу выше, чтобы сразу добавить ученика в неё (необязательно)."}
-        </span>
       </div>
 
       {createdStudent && (
@@ -233,17 +151,12 @@ export function TeacherStudentsPage() {
         </div>
       )}
 
-      {group && (
-        <div className="card" style={{ display: "flex", flexWrap: "wrap", gap: 12, alignItems: "flex-end" }}>
-          <div className="field" style={{ minWidth: 260 }}>
-            <label>Добавить уже зарегистрированного ученика в «{groups.find((g) => g.id === group)?.name}» по email</label>
-            <input className="input" value={addEmail} onChange={(e) => setAddEmail(e.target.value)} placeholder="ученик@example.com" />
-          </div>
-          <button type="button" className="btn btn-primary btn-sm" disabled={!addEmail.trim() || addingStudent} onClick={addStudent}>
-            Добавить
-          </button>
-        </div>
-      )}
+      <ChipRow>
+        <Chip active={group === null} onClick={() => setGroup(null)}>Все группы</Chip>
+        {groups.map((g) => (
+          <Chip key={g.id} active={group === g.id} onClick={() => setGroup(g.id)}>{g.name}{g.grade ? ` · ${g.grade} кл.` : ""}</Chip>
+        ))}
+      </ChipRow>
 
       {rows.length === 0 ? (
         <div className="card-meta">Учеников пока нет.</div>
