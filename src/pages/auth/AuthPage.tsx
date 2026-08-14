@@ -11,9 +11,6 @@ const EXTRA_FIELD: Record<Role, { label: string; placeholder: string }> = {
   parent: { label: "Код ученика от преподавателя", placeholder: "ID аккаунта ученика" },
 };
 
-const DEMO_EMAIL: Record<Role, string> = { student: "maksim@demo", teacher: "irina@demo", parent: "parent@demo" };
-const DEMO_PASSWORD = "demo1234";
-
 export function AuthPage() {
   const { login, register } = useStore();
   const [searchParams] = useSearchParams();
@@ -35,18 +32,6 @@ export function AuthPage() {
 
   const handleError = (e: unknown) => {
     setError(e instanceof ApiError ? e.message : "Не удалось выполнить запрос. Проверьте соединение.");
-  };
-
-  const loginAs = async (r: Role) => {
-    setError(null);
-    setBusy(true);
-    try {
-      await login(DEMO_EMAIL[r], DEMO_PASSWORD);
-    } catch (e) {
-      handleError(e);
-    } finally {
-      setBusy(false);
-    }
   };
 
   const onSubmit = async (e: React.FormEvent) => {
@@ -160,9 +145,6 @@ export function AuthPage() {
 
           <button type="submit" className="btn btn-primary btn-block" disabled={busy}>
             {mode === "login" ? "Войти" : "Создать аккаунт"}
-          </button>
-          <button type="button" className="btn btn-secondary btn-block" disabled={busy} onClick={() => loginAs(role)}>
-            Войти в демо: {ROLES.find((r) => r.id === role)?.name}
           </button>
         </form>
 
