@@ -8,6 +8,11 @@ export function useApiData<T>(path: string, deps: unknown[] = []): { data: T | u
   const [tick, setTick] = useState(0);
 
   const load = useCallback(() => {
+    if (!path) {
+      setData(undefined);
+      setLoading(false);
+      return;
+    }
     setLoading(true);
     api
       .get<T>(path)

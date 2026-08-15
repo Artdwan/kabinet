@@ -20,6 +20,7 @@ import { TeacherHomePage } from "./pages/teacher/TeacherHomePage";
 import { TeacherStudentsPage } from "./pages/teacher/TeacherStudentsPage";
 import { TeacherStudentProfilePage } from "./pages/teacher/TeacherStudentProfilePage";
 import { TeacherGroupsPage } from "./pages/teacher/TeacherGroupsPage";
+import { TeacherCalendarPage } from "./pages/teacher/TeacherCalendarPage";
 import { TeacherReviewPage } from "./pages/teacher/TeacherReviewPage";
 import { TeacherAssignPage } from "./pages/teacher/TeacherAssignPage";
 import { ParentHomePage } from "./pages/parent/ParentHomePage";
@@ -67,6 +68,7 @@ function AppRoutes() {
         <Route path="teacher/students" element={<TeacherStudentsPage />} />
         <Route path="teacher/students/:id" element={<TeacherStudentProfilePage />} />
         <Route path="teacher/groups" element={<TeacherGroupsPage />} />
+        <Route path="teacher/calendar" element={<TeacherCalendarPage />} />
         <Route path="teacher/review" element={<TeacherReviewPage />} />
         <Route path="teacher/assign" element={<TeacherAssignPage />} />
 

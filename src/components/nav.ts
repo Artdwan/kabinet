@@ -3,6 +3,7 @@ import {
   BarChart3,
   BookOpen,
   Brain,
+  CalendarDays,
   ClipboardCheck,
   FileText,
   FolderOpen,
@@ -28,6 +29,7 @@ export function navForRole(role: Role, badges: { homework?: number; review?: num
   if (role === "teacher") {
     return [
       { to: "/teacher", label: "Обзор", shortLabel: "Обзор", icon: LayoutGrid },
+      { to: "/teacher/calendar", label: "Календарь", shortLabel: "Календарь", icon: CalendarDays },
       { to: "/teacher/groups", label: "Группы", shortLabel: "Группы", icon: UsersRound },
       { to: "/teacher/students", label: "Ученики", shortLabel: "Ученики", icon: Users },
       { to: "/teacher/review", label: "Проверка работ", shortLabel: "Проверка", icon: ClipboardCheck, badge: badges.review },

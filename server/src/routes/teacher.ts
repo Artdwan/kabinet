@@ -20,11 +20,22 @@ function teacherStudentIds(teacherId: string): string[] {
 
 teacherRouter.get("/groups", (req: AuthedRequest, res) => {
   const teacherId = req.auth!.sub;
+  const nowIso = new Date().toISOString().slice(0, 16);
   const groups = db.select().from(s.groups).where(eq(s.groups.teacherId, teacherId)).all();
-  const withMembers = groups.map((g) => ({
-    ...g,
-    studentIds: db.select().from(s.groupMembers).where(eq(s.groupMembers.groupId, g.id)).all().map((m) => m.studentUserId),
-  }));
+  const withMembers = groups.map((g) => {
+    const upcoming = db
+      .select()
+      .from(s.lessons)
+      .where(and(eq(s.lessons.groupId, g.id), eq(s.lessons.status, "scheduled")))
+      .all()
+      .filter((l) => l.startAt >= nowIso)
+      .sort((a, b) => a.startAt.localeCompare(b.startAt))[0];
+    return {
+      ...g,
+      studentIds: db.select().from(s.groupMembers).where(eq(s.groupMembers.groupId, g.id)).all().map((m) => m.studentUserId),
+      nextLesson: upcoming ? { id: upcoming.id, startAt: upcoming.startAt, title: upcoming.title } : null,
+    };
+  });
   res.json(withMembers);
 });
 
@@ -103,6 +114,143 @@ teacherRouter.delete("/groups/:groupId/members/:studentId", (req: AuthedRequest,
   const group = db.select().from(s.groups).where(and(eq(s.groups.id, groupId), eq(s.groups.teacherId, teacherId))).get();
   if (!group) return res.status(404).json({ error: "Группа не найдена" });
   db.delete(s.groupMembers).where(and(eq(s.groupMembers.groupId, groupId), eq(s.groupMembers.studentUserId, studentId))).run();
+  res.json({ ok: true });
+});
+
+function lessonParticipants(lesson: typeof s.lessons.$inferSelect): string[] {
+  if (lesson.groupId) return db.select().from(s.groupMembers).where(eq(s.groupMembers.groupId, lesson.groupId)).all().map((m) => m.studentUserId);
+  if (lesson.studentId) return [lesson.studentId];
+  return [];
+}
+
+function serializeLesson(lesson: typeof s.lessons.$inferSelect) {
+  const group = lesson.groupId ? db.select().from(s.groups).where(eq(s.groups.id, lesson.groupId)).get() : undefined;
+  const student = lesson.studentId ? db.select().from(s.users).where(eq(s.users.id, lesson.studentId)).get() : undefined;
+  return {
+    id: lesson.id, groupId: lesson.groupId, groupName: group?.name ?? null,
+    studentId: lesson.studentId, studentName: student ? `${student.name} ${student.lastName}`.trim() : null,
+    title: lesson.title, startAt: lesson.startAt, durationMinutes: lesson.durationMinutes,
+    format: lesson.format, location: lesson.location, status: lesson.status, seriesId: lesson.seriesId, note: lesson.note,
+  };
+}
+
+teacherRouter.get("/lessons", (req: AuthedRequest, res) => {
+  const teacherId = req.auth!.sub;
+  const from = typeof req.query.from === "string" ? req.query.from : undefined;
+  const to = typeof req.query.to === "string" ? req.query.to : undefined;
+  let list = db.select().from(s.lessons).where(eq(s.lessons.teacherId, teacherId)).all();
+  if (from) list = list.filter((l) => l.startAt >= from);
+  if (to) list = list.filter((l) => l.startAt <= to);
+  list.sort((a, b) => a.startAt.localeCompare(b.startAt));
+  res.json(list.map(serializeLesson));
+});
+
+teacherRouter.get("/lessons/:id", (req: AuthedRequest, res) => {
+  const teacherId = req.auth!.sub;
+  const lesson = db.select().from(s.lessons).where(and(eq(s.lessons.id, pstr(req.params.id)), eq(s.lessons.teacherId, teacherId))).get();
+  if (!lesson) return res.status(404).json({ error: "Занятие не найдено" });
+  const participantIds = lessonParticipants(lesson);
+  const attendanceRows = db.select().from(s.lessonAttendance).where(eq(s.lessonAttendance.lessonId, lesson.id)).all();
+  const attendance = participantIds.map((id) => {
+    const user = db.select().from(s.users).where(eq(s.users.id, id)).get();
+    const row = attendanceRows.find((a) => a.studentId === id);
+    return { studentId: id, name: user ? `${user.name} ${user.lastName}`.trim() : id, status: row?.status ?? null };
+  });
+  res.json({ ...serializeLesson(lesson), attendance });
+});
+
+teacherRouter.post("/lessons", (req: AuthedRequest, res) => {
+  const teacherId = req.auth!.sub;
+  const { groupId, studentId, title, startAt, durationMinutes, format, location, repeatWeekly, repeatUntil } = req.body || {};
+  if (!groupId && !studentId) return res.status(400).json({ error: "Укажите группу или ученика" });
+  if (groupId) {
+    const group = db.select().from(s.groups).where(and(eq(s.groups.id, groupId), eq(s.groups.teacherId, teacherId))).get();
+    if (!group) return res.status(404).json({ error: "Группа не найдена" });
+  }
+  if (studentId && !teacherStudentIds(teacherId).includes(studentId)) return res.status(404).json({ error: "Ученик не найден" });
+  if (!startAt) return res.status(400).json({ error: "Укажите дату и время" });
+
+  const seriesId = repeatWeekly && repeatUntil ? randomUUID() : null;
+  const starts: string[] = [String(startAt)];
+  if (seriesId) {
+    const first = new Date(startAt);
+    const until = new Date(repeatUntil);
+    let next = new Date(first.getTime() + 7 * 24 * 60 * 60 * 1000);
+    while (next <= until) {
+      starts.push(next.toISOString().slice(0, 16));
+      next = new Date(next.getTime() + 7 * 24 * 60 * 60 * 1000);
+    }
+  }
+
+  const created = starts.map((start) => {
+    const id = randomUUID();
+    db.insert(s.lessons)
+      .values({
+        id, teacherId, groupId: groupId || null, studentId: studentId || null,
+        title: title ? String(title).trim() : "", startAt: start,
+        durationMinutes: durationMinutes ? Number(durationMinutes) : 60,
+        format: format === "online" ? "online" : "offline", location: location ? String(location).trim() : "",
+        status: "scheduled", seriesId, note: null, createdAt: new Date().toISOString(),
+      })
+      .run();
+    return db.select().from(s.lessons).where(eq(s.lessons.id, id)).get()!;
+  });
+
+  res.json({ created: created.map(serializeLesson) });
+});
+
+teacherRouter.patch("/lessons/:id", (req: AuthedRequest, res) => {
+  const teacherId = req.auth!.sub;
+  const lessonId = pstr(req.params.id);
+  const lesson = db.select().from(s.lessons).where(and(eq(s.lessons.id, lessonId), eq(s.lessons.teacherId, teacherId))).get();
+  if (!lesson) return res.status(404).json({ error: "Занятие не найдено" });
+
+  const { title, startAt, durationMinutes, format, location, status, note, scope } = req.body || {};
+  const patch: Partial<typeof s.lessons.$inferInsert> = {};
+  if (title !== undefined) patch.title = String(title).trim();
+  if (startAt !== undefined) patch.startAt = String(startAt);
+  if (durationMinutes !== undefined) patch.durationMinutes = Number(durationMinutes);
+  if (format !== undefined) patch.format = format === "online" ? "online" : "offline";
+  if (location !== undefined) patch.location = String(location).trim();
+  if (status !== undefined) patch.status = status;
+  if (note !== undefined) patch.note = note && String(note).trim() ? String(note).trim() : null;
+
+  if (scope === "series" && lesson.seriesId) {
+    db.update(s.lessons)
+      .set(patch)
+      .where(and(eq(s.lessons.seriesId, lesson.seriesId), eq(s.lessons.teacherId, teacherId), eq(s.lessons.status, "scheduled")))
+      .run();
+  } else {
+    db.update(s.lessons).set(patch).where(eq(s.lessons.id, lessonId)).run();
+  }
+  res.json({ ok: true });
+});
+
+teacherRouter.delete("/lessons/:id", (req: AuthedRequest, res) => {
+  const teacherId = req.auth!.sub;
+  const lessonId = pstr(req.params.id);
+  const lesson = db.select().from(s.lessons).where(and(eq(s.lessons.id, lessonId), eq(s.lessons.teacherId, teacherId))).get();
+  if (!lesson) return res.status(404).json({ error: "Занятие не найдено" });
+  db.delete(s.lessonAttendance).where(eq(s.lessonAttendance.lessonId, lessonId)).run();
+  db.delete(s.lessons).where(eq(s.lessons.id, lessonId)).run();
+  res.json({ ok: true });
+});
+
+teacherRouter.post("/lessons/:id/attendance", (req: AuthedRequest, res) => {
+  const teacherId = req.auth!.sub;
+  const lessonId = pstr(req.params.id);
+  const lesson = db.select().from(s.lessons).where(and(eq(s.lessons.id, lessonId), eq(s.lessons.teacherId, teacherId))).get();
+  if (!lesson) return res.status(404).json({ error: "Занятие не найдено" });
+
+  const { attendance } = req.body || {};
+  if (!Array.isArray(attendance)) return res.status(400).json({ error: "Некорректные данные" });
+
+  for (const row of attendance) {
+    if (!row?.studentId || !["present", "absent", "excused"].includes(row.status)) continue;
+    db.delete(s.lessonAttendance).where(and(eq(s.lessonAttendance.lessonId, lessonId), eq(s.lessonAttendance.studentId, row.studentId))).run();
+    db.insert(s.lessonAttendance).values({ lessonId, studentId: row.studentId, status: row.status }).run();
+  }
+  db.update(s.lessons).set({ status: "done" }).where(and(eq(s.lessons.id, lessonId), eq(s.lessons.status, "scheduled"))).run();
   res.json({ ok: true });
 });
 

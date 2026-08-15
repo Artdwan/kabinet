@@ -1,7 +1,9 @@
 import { useState } from "react";
+import { Link } from "react-router-dom";
 import { useApiData } from "../../services/useApiData";
 import { api, ApiError } from "../../services/apiClient";
 import { useToast } from "../../services/ToastContext";
+import { fmtDate } from "../../services/mockApi";
 import { SUBJECTS } from "../../data/content";
 
 interface RosterRow {
@@ -16,6 +18,7 @@ interface GroupRow {
   grade: number | null;
   description: string | null;
   studentIds: string[];
+  nextLesson: { id: string; startAt: string; title: string } | null;
 }
 
 export function TeacherGroupsPage() {
@@ -124,6 +127,13 @@ export function TeacherGroupsPage() {
                   </div>
                   <div className="card-meta">{subjectName(g.subjectId)} · учеников: {g.studentIds.length}</div>
                   {g.description && <p className="card-body" style={{ margin: "4px 0 0" }}>{g.description}</p>}
+                  <div className="card-meta" style={{ marginTop: 4 }}>
+                    {g.nextLesson ? `Ближайшее занятие: ${fmtDate(g.nextLesson.startAt.slice(0, 10))} · ${g.nextLesson.startAt.slice(11, 16)}` : "Занятий не запланировано"}
+                  </div>
+                </div>
+                <div style={{ display: "flex", gap: 8 }}>
+                  <Link to="/teacher/calendar" className="btn btn-ghost btn-sm">Открыть в календаре</Link>
+                  <Link to={`/teacher/calendar?newLessonGroup=${g.id}`} className="btn btn-secondary btn-sm">Добавить занятие</Link>
                 </div>
               </div>
 

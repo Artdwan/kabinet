@@ -51,6 +51,32 @@ export const groupMembers = sqliteTable(
   (t) => [primaryKey({ columns: [t.groupId, t.studentUserId] })],
 );
 
+export const lessons = sqliteTable("lessons", {
+  id: text("id").primaryKey(),
+  teacherId: text("teacher_id").notNull().references(() => users.id),
+  groupId: text("group_id").references(() => groups.id),
+  studentId: text("student_id").references(() => users.id),
+  title: text("title").notNull().default(""),
+  startAt: text("start_at").notNull(),
+  durationMinutes: integer("duration_minutes").notNull().default(60),
+  format: text("format", { enum: ["online", "offline"] }).notNull().default("offline"),
+  location: text("location").notNull().default(""),
+  status: text("status", { enum: ["scheduled", "done", "cancelled"] }).notNull().default("scheduled"),
+  seriesId: text("series_id"),
+  note: text("note"),
+  createdAt: text("created_at").notNull(),
+});
+
+export const lessonAttendance = sqliteTable(
+  "lesson_attendance",
+  {
+    lessonId: text("lesson_id").notNull().references(() => lessons.id),
+    studentId: text("student_id").notNull().references(() => users.id),
+    status: text("status", { enum: ["present", "absent", "excused"] }).notNull(),
+  },
+  (t) => [primaryKey({ columns: [t.lessonId, t.studentId] })],
+);
+
 // ---------------------------------------------------------------------------
 // Content (global, seeded; read-only via API — a future authoring UI would
 // write here without changing anything below this section)
