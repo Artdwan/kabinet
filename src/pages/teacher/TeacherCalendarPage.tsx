@@ -85,7 +85,7 @@ function eventColor(key: string): { bg: string; accent: string } {
 
 const DAY_START_MIN = 7 * 60;
 const DAY_END_MIN = 22 * 60;
-const PX_PER_MIN = 1;
+const PX_PER_MIN = 1.6;
 const GRID_HEIGHT = (DAY_END_MIN - DAY_START_MIN) * PX_PER_MIN;
 const HOUR_LABELS = Array.from({ length: (DAY_END_MIN - DAY_START_MIN) / 60 + 1 }, (_, i) => DAY_START_MIN / 60 + i);
 
@@ -314,10 +314,10 @@ export function TeacherCalendarPage() {
           );
         })}
       </div>
-      <div style={{ display: "grid", gridTemplateColumns: `56px repeat(${dayList.length}, 1fr)`, maxHeight: 640, overflowY: "auto" }}>
+      <div style={{ display: "grid", gridTemplateColumns: `56px repeat(${dayList.length}, 1fr)` }}>
         <div style={{ position: "relative", height: GRID_HEIGHT }}>
           {HOUR_LABELS.map((h) => (
-            <div key={h} style={{ position: "absolute", top: (h * 60 - DAY_START_MIN) * PX_PER_MIN - 7, right: 6, fontSize: 11, color: "var(--color-text-3)" }}>
+            <div key={h} style={{ position: "absolute", top: (h * 60 - DAY_START_MIN) * PX_PER_MIN - 8, right: 8, fontSize: 12.5, color: "var(--color-text-3)" }}>
               {String(h).padStart(2, "0")}:00
             </div>
           ))}
@@ -338,7 +338,7 @@ export function TeacherCalendarPage() {
               {dayLessons.map((l) => {
                 const start = Math.max(minutesOfDay(l.startAt), DAY_START_MIN);
                 const top = (start - DAY_START_MIN) * PX_PER_MIN;
-                const height = Math.max(24, l.durationMinutes * PX_PER_MIN);
+                const height = Math.max(40, l.durationMinutes * PX_PER_MIN);
                 const color = eventColor(l.groupId || l.studentId || l.id);
                 return (
                   <button
@@ -346,18 +346,19 @@ export function TeacherCalendarPage() {
                     type="button"
                     onClick={(e) => { e.stopPropagation(); setDetailId(l.id); }}
                     style={{
-                      position: "absolute", left: 3, right: 3, top, height,
-                      background: color.bg, borderLeft: `3px solid ${color.accent}`,
-                      borderRadius: 6, padding: "4px 6px", textAlign: "left", cursor: "pointer",
+                      position: "absolute", left: 4, right: 4, top, height,
+                      background: color.bg, borderLeft: `4px solid ${color.accent}`,
+                      borderRadius: 8, padding: "8px 10px", textAlign: "left", cursor: "pointer",
                       overflow: "hidden", color: "var(--color-text-1)",
                       opacity: l.status === "cancelled" ? 0.5 : 1,
+                      boxShadow: "var(--shadow-sm)",
                     }}
                     title={`${l.startAt.slice(11, 16)} ${l.groupName || l.studentName || ""}`}
                   >
-                    <div style={{ fontSize: 11, fontWeight: 600, color: color.accent }}>
+                    <div style={{ fontSize: 13.5, fontWeight: 700, color: color.accent }}>
                       {l.startAt.slice(11, 16)}{l.seriesId ? " ↻" : ""}
                     </div>
-                    <div style={{ fontSize: 12, textDecoration: l.status === "cancelled" ? "line-through" : undefined }}>
+                    <div style={{ fontSize: 14, fontWeight: 600, marginTop: 2, textDecoration: l.status === "cancelled" ? "line-through" : undefined }}>
                       {l.groupName || l.studentName}
                     </div>
                   </button>

@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import { Link, NavLink, Outlet, useNavigate } from "react-router-dom";
+import { Link, NavLink, Outlet, useLocation, useNavigate } from "react-router-dom";
 import { Bell, ChevronDown, LogOut, Settings as SettingsIcon } from "lucide-react";
 import { useStore } from "../services/StoreContext";
 import { useActions } from "../services/actions";
@@ -13,6 +13,8 @@ export function AppShell() {
   const { store, account, logout } = useStore();
   const actions = useActions();
   const navigate = useNavigate();
+  const location = useLocation();
+  const isWidePage = location.pathname.startsWith("/teacher/calendar");
   const [notifOpen, setNotifOpen] = useState(false);
   const [profileOpen, setProfileOpen] = useState(false);
   const [reviewCount, setReviewCount] = useState(0);
@@ -269,7 +271,7 @@ export function AppShell() {
           </div>
         </header>
 
-        <main data-pad data-page style={{ flex: 1, width: "100%" }}>
+        <main data-pad data-page style={{ flex: 1, width: "100%", ...(isWidePage ? { maxWidth: "none" } : {}) }}>
           <Outlet />
         </main>
       </div>
