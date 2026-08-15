@@ -60,7 +60,7 @@ teacherRouter.post("/groups/:groupId/members", (req: AuthedRequest, res) => {
 
 teacherRouter.post("/students", (req: AuthedRequest, res) => {
   const teacherId = req.auth!.sub;
-  const { name, lastName, email, groupId } = req.body || {};
+  const { name, lastName, email, groupId, grade, goalScore, note } = req.body || {};
   if (!name || !String(name).trim()) return res.status(400).json({ error: "Укажите имя ученика" });
   if (!email || !String(email).includes("@")) return res.status(400).json({ error: "Введите корректный email" });
 
@@ -81,7 +81,16 @@ teacherRouter.post("/students", (req: AuthedRequest, res) => {
     .values({ id, role: "student", email: String(email).trim(), passwordHash, name: String(name).trim(), lastName: String(lastName || "").trim(), extra: "", createdAt: new Date().toISOString() })
     .run();
   db.insert(s.settings).values({ userId: id, instantCheck: true, reduceMotion: false, compactCards: false }).run();
-  db.insert(s.students).values({ userId: id, grade: 11, city: "", goalScore: 85, teacherId }).run();
+  db.insert(s.students)
+    .values({
+      userId: id,
+      grade: grade ? Number(grade) : 11,
+      city: "",
+      goalScore: goalScore ? Number(goalScore) : 85,
+      teacherId,
+      note: note && String(note).trim() ? String(note).trim() : null,
+    })
+    .run();
   if (group) db.insert(s.groupMembers).values({ groupId: group.id, studentUserId: id }).run();
 
   res.json({ id, email: String(email).trim(), password, name: String(name).trim(), lastName: String(lastName || "").trim() });
@@ -102,6 +111,8 @@ teacherRouter.get("/roster", (req: AuthedRequest, res) => {
   const studentIds = teacherStudentIds(teacherId);
   const allHomeworks = db.select().from(s.homeworks).all();
   const allExerciseIds = allHomeworks.flatMap((hw) => (hw.sections as any[]).filter((sc) => sc.kind === "exercises").flatMap((sc) => sc.exercises.map((e: any) => e.id)));
+  const today = new Date().toISOString().slice(0, 10);
+  const myGroups = db.select().from(s.groups).where(eq(s.groups.teacherId, teacherId)).all();
 
   const roster = studentIds.map((id) => {
     const user = db.select().from(s.users).where(eq(s.users.id, id)).get()!;
@@ -117,6 +128,14 @@ teacherRouter.get("/roster", (req: AuthedRequest, res) => {
 
     const attempts = db.select().from(s.homeworkAttempts).where(eq(s.homeworkAttempts.studentId, id)).all();
     const lastActive = attempts.reduce((max, a) => (a.updatedAt > max ? a.updatedAt : max), "");
+
+    const states = db.select().from(s.homeworkState).where(eq(s.homeworkState.studentId, id)).all();
+    const overdue = allHomeworks.filter((hw) => {
+      const st = states.find((x) => x.homeworkId === hw.id);
+      return hw.dueAt < today && !st?.submittedAt;
+    }).length;
+
+    const memberGroups = myGroups.filter((g) => db.select().from(s.groupMembers).where(and(eq(s.groupMembers.groupId, g.id), eq(s.groupMembers.studentUserId, id))).get());
 
     // Weak topic: lowest-scoring topic across this student's own CT results.
     const topicSums = new Map<string, { sum: number; n: number }>();
@@ -144,11 +163,84 @@ teacherRouter.get("/roster", (req: AuthedRequest, res) => {
     return {
       id, name: `${user.name} ${user.lastName}`.trim(), grade: student?.grade ?? 11,
       avg, goal: student?.goalScore ?? 85, done: progress.done, total: progress.total,
-      risk, weak: weakTopic, lastActive: lastActive || null,
+      overdue, risk, weak: weakTopic, lastActive: lastActive || null,
+      groupIds: memberGroups.map((g) => g.id), groupNames: memberGroups.map((g) => g.name),
     };
   });
 
   res.json(roster);
+});
+
+teacherRouter.get("/students/:id", (req: AuthedRequest, res) => {
+  const teacherId = req.auth!.sub;
+  const studentId = pstr(req.params.id);
+  if (!teacherStudentIds(teacherId).includes(studentId)) return res.status(404).json({ error: "Ученик не найден" });
+
+  const user = db.select().from(s.users).where(eq(s.users.id, studentId)).get()!;
+  const student = db.select().from(s.students).where(eq(s.students.userId, studentId)).get();
+  const myGroups = db.select().from(s.groups).where(eq(s.groups.teacherId, teacherId)).all();
+  const groups = myGroups
+    .filter((g) => db.select().from(s.groupMembers).where(and(eq(s.groupMembers.groupId, g.id), eq(s.groupMembers.studentUserId, studentId))).get())
+    .map((g) => ({ id: g.id, name: g.name }));
+
+  const allHomeworks = db.select().from(s.homeworks).all();
+  const states = db.select().from(s.homeworkState).where(eq(s.homeworkState.studentId, studentId)).all();
+  const attempts = db.select().from(s.homeworkAttempts).where(eq(s.homeworkAttempts.studentId, studentId)).all();
+  const today = new Date().toISOString().slice(0, 10);
+
+  const homeworks = allHomeworks.map((hw) => {
+    const exerciseIds = (hw.sections as any[]).filter((sc) => sc.kind === "exercises").flatMap((sc) => sc.exercises.map((e: any) => e.id));
+    const statuses: Record<string, ExerciseStatus> = {};
+    attempts.filter((a) => a.homeworkId === hw.id).forEach((a) => { statuses[a.exerciseId] = a.status; });
+    const progress = homeworkProgress(exerciseIds, statuses);
+    const st = states.find((x) => x.homeworkId === hw.id);
+    let status: string;
+    if (st?.reviewedAt) status = "reviewed";
+    else if (st?.submittedAt) status = "submitted";
+    else if (hw.dueAt < today) status = "overdue";
+    else if (progress.done > 0) status = "in_progress";
+    else status = "new";
+    return { id: hw.id, title: hw.title, dueAt: hw.dueAt, done: progress.done, total: progress.total, submittedAt: st?.submittedAt ?? null, reviewedAt: st?.reviewedAt ?? null, status };
+  });
+
+  const results = db.select().from(s.ctResults).where(eq(s.ctResults.studentId, studentId)).all().sort((a, b) => a.date.localeCompare(b.date));
+
+  const topicSums = new Map<string, { sum: number; n: number }>();
+  results.forEach((r) => {
+    Object.entries(r.topicAccuracy as Record<string, number>).forEach(([topicId, pct]) => {
+      const e = topicSums.get(topicId) || { sum: 0, n: 0 };
+      e.sum += pct;
+      e.n += 1;
+      topicSums.set(topicId, e);
+    });
+  });
+  const topicAccuracy = Array.from(topicSums.entries())
+    .map(([topicId, v]) => ({ topicId, topicName: db.select().from(s.topics).where(eq(s.topics.id, topicId)).get()?.name ?? topicId, accuracy: Math.round(v.sum / v.n) }))
+    .sort((a, b) => a.accuracy - b.accuracy);
+
+  const avg = results.length ? Math.round(results.reduce((sum, r) => sum + r.score, 0) / results.length) : 0;
+  const lastActive = attempts.reduce((max, a) => (a.updatedAt > max ? a.updatedAt : max), "");
+
+  res.json({
+    id: studentId, name: user.name, lastName: user.lastName, email: user.email,
+    grade: student?.grade ?? 11, goalScore: student?.goalScore ?? 85, note: student?.note ?? null,
+    groups, avg, lastActive: lastActive || null, homeworks, results, topicAccuracy,
+  });
+});
+
+teacherRouter.patch("/students/:id", (req: AuthedRequest, res) => {
+  const teacherId = req.auth!.sub;
+  const studentId = pstr(req.params.id);
+  if (!teacherStudentIds(teacherId).includes(studentId)) return res.status(404).json({ error: "Ученик не найден" });
+
+  const { grade, goalScore, note } = req.body || {};
+  const patch: Partial<typeof s.students.$inferInsert> = {};
+  if (grade !== undefined) patch.grade = Number(grade);
+  if (goalScore !== undefined) patch.goalScore = Number(goalScore);
+  if (note !== undefined) patch.note = note && String(note).trim() ? String(note).trim() : null;
+
+  db.update(s.students).set(patch).where(eq(s.students.userId, studentId)).run();
+  res.json({ ok: true });
 });
 
 teacherRouter.get("/review-queue", (req: AuthedRequest, res) => {

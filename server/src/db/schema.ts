@@ -21,6 +21,7 @@ export const students = sqliteTable("students", {
   city: text("city").notNull().default(""),
   goalScore: integer("goal_score").notNull().default(85),
   teacherId: text("teacher_id").references(() => users.id),
+  note: text("note"),
 });
 
 export const parentLinks = sqliteTable(
