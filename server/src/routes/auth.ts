@@ -1,10 +1,11 @@
 import { Router } from "express";
 import bcrypt from "bcryptjs";
-import { randomUUID } from "node:crypto";
-import { eq } from "drizzle-orm";
+import { randomUUID, randomBytes } from "node:crypto";
+import { eq, lt } from "drizzle-orm";
 import { db } from "../db/client.js";
 import * as s from "../db/schema.js";
 import { signToken, requireAuth, type AuthedRequest } from "../auth.js";
+import { sendMail } from "../lib/mailer.js";
 
 export const authRouter = Router();
 
@@ -59,4 +60,50 @@ authRouter.get("/me", requireAuth, (req: AuthedRequest, res) => {
   const user = db.select().from(s.users).where(eq(s.users.id, req.auth!.sub)).get();
   if (!user) return res.status(404).json({ error: "Аккаунт не найден" });
   res.json({ account: publicAccount(user) });
+});
+
+authRouter.post("/forgot-password", async (req, res) => {
+  const { email } = req.body || {};
+  // Always respond the same way regardless of whether the email exists, so the
+  // endpoint can't be used to enumerate registered accounts.
+  const user = email ? db.select().from(s.users).where(eq(s.users.email, String(email).trim())).get() : undefined;
+
+  if (user) {
+    db.delete(s.passwordResets).where(lt(s.passwordResets.expiresAt, new Date().toISOString())).run();
+    const token = randomBytes(32).toString("hex");
+    const expiresAt = new Date(Date.now() + 60 * 60 * 1000).toISOString();
+    db.insert(s.passwordResets).values({ token, userId: user.id, expiresAt, createdAt: new Date().toISOString() }).run();
+
+    const base = process.env.FRONTEND_URL || "https://kabinet.targetologistcabinet.space";
+    const link = `${base}/reset-password?token=${token}`;
+    try {
+      await sendMail(
+        user.email,
+        "Восстановление пароля — Кабинет ученика",
+        `<p>Здравствуйте, ${user.name}!</p><p>Чтобы установить новый пароль, перейдите по ссылке (действительна 1 час):</p><p><a href="${link}">${link}</a></p><p>Если вы не запрашивали восстановление пароля, просто проигнорируйте это письмо.</p>`,
+      );
+    } catch (e) {
+      console.error("[forgot-password] failed to send email:", e);
+    }
+  }
+
+  res.json({ ok: true });
+});
+
+authRouter.post("/reset-password", (req, res) => {
+  const { token, password } = req.body || {};
+  if (!token || !password || String(password).length < 6) {
+    return res.status(400).json({ error: "Пароль должен быть не короче 6 символов" });
+  }
+
+  const reset = db.select().from(s.passwordResets).where(eq(s.passwordResets.token, String(token))).get();
+  if (!reset || reset.expiresAt < new Date().toISOString()) {
+    return res.status(400).json({ error: "Ссылка недействительна или устарела — запросите восстановление ещё раз" });
+  }
+
+  const passwordHash = bcrypt.hashSync(String(password), 10);
+  db.update(s.users).set({ passwordHash }).where(eq(s.users.id, reset.userId)).run();
+  db.delete(s.passwordResets).where(eq(s.passwordResets.token, String(token))).run();
+
+  res.json({ ok: true });
 });

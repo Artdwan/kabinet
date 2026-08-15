@@ -3,6 +3,7 @@ import { StoreProvider, useStore } from "./services/StoreContext";
 import { ToastProvider } from "./services/ToastContext";
 import { AppShell } from "./components/AppShell";
 import { AuthPage } from "./pages/auth/AuthPage";
+import { ResetPasswordPage } from "./pages/auth/ResetPasswordPage";
 import { HomePage } from "./pages/student/HomePage";
 import { HomeworkListPage } from "./pages/student/HomeworkListPage";
 import { HomeworkReaderPage } from "./pages/student/HomeworkReaderPage";
@@ -41,6 +42,7 @@ function AppRoutes() {
   if (!account) {
     return (
       <Routes>
+        <Route path="reset-password" element={<ResetPasswordPage />} />
         <Route path="*" element={<AuthPage />} />
       </Routes>
     );

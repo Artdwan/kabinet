@@ -15,6 +15,13 @@ export const users = sqliteTable("users", {
   createdAt: text("created_at").notNull(),
 });
 
+export const passwordResets = sqliteTable("password_resets", {
+  token: text("token").primaryKey(),
+  userId: text("user_id").notNull().references(() => users.id),
+  expiresAt: text("expires_at").notNull(),
+  createdAt: text("created_at").notNull(),
+});
+
 export const students = sqliteTable("students", {
   userId: text("user_id").primaryKey().references(() => users.id),
   grade: integer("grade").notNull().default(11),
