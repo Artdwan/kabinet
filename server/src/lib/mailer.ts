@@ -11,6 +11,9 @@ function getTransporter() {
     port: Number(SMTP_PORT) || 465,
     secure: Number(SMTP_PORT) !== 587,
     auth: { user: SMTP_USER, pass: SMTP_PASS },
+    // The mail server's own TLS certificate is expired/self-signed; we still
+    // trust it because it's our own server on our own domain, not a third party.
+    tls: { rejectUnauthorized: false },
   });
   return transporter;
 }
