@@ -31,6 +31,7 @@ interface GroupRow {
   id: string;
   name: string;
   subjectId: string;
+  grade: number | null;
 }
 
 interface RosterRow {
@@ -97,7 +98,7 @@ function minutesOfDay(iso: string): number {
 export function TeacherCalendarPage() {
   const [searchParams, setSearchParams] = useSearchParams();
   const { show } = useToast();
-  const [view, setView] = useState<"day" | "week" | "month">("week");
+  const [view, setView] = useState<"day" | "week" | "month" | "year">("week");
   const [refDate, setRefDate] = useState(new Date());
   const [miniMonth, setMiniMonth] = useState(new Date());
   const { data: groups = [] } = useApiData<GroupRow[]>("/teacher/groups");
@@ -105,9 +106,14 @@ export function TeacherCalendarPage() {
 
   const [groupFilter, setGroupFilter] = useState("");
   const [subjectFilter, setSubjectFilter] = useState("");
+  const [gradeFilter, setGradeFilter] = useState("");
 
-  const rangeStart = view === "month" ? startOfMonthGrid(refDate) : view === "week" ? startOfWeek(refDate) : new Date(new Date(refDate).setHours(0, 0, 0, 0));
-  const days = view === "month" ? 42 : view === "week" ? 7 : 1;
+  const rangeStart =
+    view === "year" ? new Date(refDate.getFullYear(), 0, 1) :
+    view === "month" ? startOfMonthGrid(refDate) :
+    view === "week" ? startOfWeek(refDate) :
+    new Date(new Date(refDate).setHours(0, 0, 0, 0));
+  const days = view === "year" ? 366 : view === "month" ? 42 : view === "week" ? 7 : 1;
   const rangeEnd = new Date(rangeStart);
   rangeEnd.setDate(rangeEnd.getDate() + days);
 
@@ -116,19 +122,20 @@ export function TeacherCalendarPage() {
     [view, refDate.toDateString()],
   );
 
-  const groupSubject = useMemo(() => {
-    const map = new Map<string, string>();
-    groups.forEach((g) => map.set(g.id, g.subjectId));
+  const groupInfo = useMemo(() => {
+    const map = new Map<string, GroupRow>();
+    groups.forEach((g) => map.set(g.id, g));
     return map;
   }, [groups]);
 
   const lessons = useMemo(() => {
     return lessonsRaw.filter((l) => {
       if (groupFilter && l.groupId !== groupFilter) return false;
-      if (subjectFilter && (!l.groupId || groupSubject.get(l.groupId) !== subjectFilter)) return false;
+      if (subjectFilter && (!l.groupId || groupInfo.get(l.groupId)?.subjectId !== subjectFilter)) return false;
+      if (gradeFilter && (!l.groupId || String(groupInfo.get(l.groupId)?.grade ?? "") !== gradeFilter)) return false;
       return true;
     });
-  }, [lessonsRaw, groupFilter, subjectFilter, groupSubject]);
+  }, [lessonsRaw, groupFilter, subjectFilter, gradeFilter, groupInfo]);
 
   const lessonsByDay = useMemo(() => {
     const map = new Map<string, LessonRow[]>();
@@ -268,12 +275,15 @@ export function TeacherCalendarPage() {
 
   const step = (dir: 1 | -1) => {
     const d = new Date(refDate);
-    if (view === "month") d.setDate(d.getDate() + dir * 30);
+    if (view === "year") d.setFullYear(d.getFullYear() + dir);
+    else if (view === "month") d.setDate(d.getDate() + dir * 30);
     else if (view === "week") d.setDate(d.getDate() + dir * 7);
     else d.setDate(d.getDate() + dir);
     setRefDate(d);
     setMiniMonth(d);
   };
+
+  const grades = useMemo(() => Array.from(new Set(groups.map((g) => g.grade).filter((g): g is number => g != null))).sort((a, b) => a - b), [groups]);
 
   const miniGridStart = startOfMonthGrid(miniMonth);
   const miniDays: Date[] = Array.from({ length: 42 }, (_, i) => {
@@ -402,13 +412,17 @@ export function TeacherCalendarPage() {
 
         <div className="card" style={{ padding: 12, display: "flex", flexDirection: "column", gap: 10 }}>
           <div className="card-title" style={{ fontSize: 13 }}>Фильтры</div>
-          <select className="input" style={{ fontSize: 12.5 }} value={groupFilter} onChange={(e) => setGroupFilter(e.target.value)}>
-            <option value="">Все группы</option>
-            {groups.map((g) => <option key={g.id} value={g.id}>{g.name}</option>)}
+          <select className="input" style={{ fontSize: 12.5 }} value={gradeFilter} onChange={(e) => setGradeFilter(e.target.value)}>
+            <option value="">Все классы</option>
+            {grades.map((g) => <option key={g} value={g}>{g} класс</option>)}
           </select>
           <select className="input" style={{ fontSize: 12.5 }} value={subjectFilter} onChange={(e) => setSubjectFilter(e.target.value)}>
             <option value="">Все предметы</option>
             {SUBJECTS.map((s) => <option key={s.id} value={s.id}>{s.name}</option>)}
+          </select>
+          <select className="input" style={{ fontSize: 12.5 }} value={groupFilter} onChange={(e) => setGroupFilter(e.target.value)}>
+            <option value="">Все группы</option>
+            {groups.map((g) => <option key={g.id} value={g.id}>{g.name}</option>)}
           </select>
         </div>
 
@@ -424,11 +438,13 @@ export function TeacherCalendarPage() {
               <ChevronLeft size={16} />
             </button>
             <span style={{ fontFamily: "var(--font-heading)", fontSize: 18, minWidth: 160, textAlign: "center" }}>
-              {view === "month"
-                ? `${MONTH_NAMES[refDate.getMonth()]} ${refDate.getFullYear()}`
-                : view === "week"
-                  ? `Неделя с ${toDateInput(rangeStart)}`
-                  : `${refDate.getDate()} ${MONTH_NAMES[refDate.getMonth()].toLowerCase()}`}
+              {view === "year"
+                ? `${refDate.getFullYear()}`
+                : view === "month"
+                  ? `${MONTH_NAMES[refDate.getMonth()]} ${refDate.getFullYear()}`
+                  : view === "week"
+                    ? `Неделя с ${toDateInput(rangeStart)}`
+                    : `${refDate.getDate()} ${MONTH_NAMES[refDate.getMonth()].toLowerCase()}`}
             </span>
             <button type="button" className="btn btn-ghost btn-sm" onClick={() => step(1)}>
               <ChevronRight size={16} />
@@ -440,6 +456,7 @@ export function TeacherCalendarPage() {
               <button type="button" className="seg-opt" style={view === "day" ? { color: "var(--color-accent)", background: "var(--color-accent-100)" } : undefined} onClick={() => setView("day")}>День</button>
               <button type="button" className="seg-opt" style={view === "week" ? { color: "var(--color-accent)", background: "var(--color-accent-100)" } : undefined} onClick={() => setView("week")}>Неделя</button>
               <button type="button" className="seg-opt" style={view === "month" ? { color: "var(--color-accent)", background: "var(--color-accent-100)" } : undefined} onClick={() => setView("month")}>Месяц</button>
+              <button type="button" className="seg-opt" style={view === "year" ? { color: "var(--color-accent)", background: "var(--color-accent-100)" } : undefined} onClick={() => setView("year")}>Год</button>
             </div>
             <button type="button" className="btn btn-primary btn-sm" onClick={() => { setCreateDate(toDateInput(new Date())); setCreateOpen(true); }}>
               Добавить занятие
@@ -447,7 +464,60 @@ export function TeacherCalendarPage() {
           </div>
         </div>
 
-        {view === "month" ? (
+        {view === "year" ? (
+          <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(230px, 1fr))", gap: 14 }}>
+            {Array.from({ length: 12 }, (_, m) => {
+              const monthDate = new Date(refDate.getFullYear(), m, 1);
+              const monthGridStart = startOfMonthGrid(monthDate);
+              const cells = Array.from({ length: 42 }, (_, i) => {
+                const d = new Date(monthGridStart);
+                d.setDate(d.getDate() + i);
+                return d;
+              });
+              return (
+                <div key={m} className="card" style={{ padding: 10 }}>
+                  <button
+                    type="button"
+                    style={{ background: "none", border: "none", cursor: "pointer", padding: 0, fontSize: 13.5, fontWeight: 600, color: "var(--color-text-1)", marginBottom: 6 }}
+                    onClick={() => { setRefDate(monthDate); setMiniMonth(monthDate); setView("month"); }}
+                  >
+                    {MONTH_NAMES[m]}
+                  </button>
+                  <div style={{ display: "grid", gridTemplateColumns: "repeat(7, 1fr)", gap: 1, fontSize: 9.5 }}>
+                    {WEEKDAYS.map((w) => (
+                      <div key={w} style={{ textAlign: "center", color: "var(--color-text-3)" }}>{w[0]}</div>
+                    ))}
+                    {cells.map((d) => {
+                      const key = toDateInput(d);
+                      const inMonth = d.getMonth() === m;
+                      const hasLessons = inMonth && (lessonsByDay.get(key)?.length ?? 0) > 0;
+                      return (
+                        <button
+                          key={key}
+                          type="button"
+                          disabled={!inMonth}
+                          onClick={() => { setRefDate(d); setView("day"); }}
+                          style={{
+                            aspectRatio: "1", border: "none", borderRadius: 4, cursor: inMonth ? "pointer" : "default",
+                            background: key === todayKey ? "var(--color-accent-100)" : "transparent",
+                            color: inMonth ? "var(--color-text-1)" : "var(--color-text-3)",
+                            opacity: inMonth ? 1 : 0.3,
+                            fontSize: 9.5, position: "relative",
+                          }}
+                        >
+                          {d.getDate()}
+                          {hasLessons && (
+                            <span style={{ position: "absolute", bottom: 1, left: "50%", transform: "translateX(-50%)", width: 3, height: 3, borderRadius: "50%", background: "var(--color-accent)" }} />
+                          )}
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        ) : view === "month" ? (
           <div style={{ display: "grid", gridTemplateColumns: "repeat(7, 1fr)", gap: 8 }}>
             {WEEKDAYS.map((w) => (
               <div key={w} className="card-meta" style={{ textAlign: "center", fontWeight: 600 }}>{w}</div>
