@@ -122,9 +122,9 @@ export function TeacherGroupsPage() {
             <div key={g.id} className="card">
               <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", flexWrap: "wrap", gap: 8 }}>
                 <div>
-                  <div className="card-title" style={{ fontSize: 15 }}>
+                  <Link to={`/teacher/groups/${g.id}`} className="card-title" style={{ fontSize: 15, textDecoration: "none" }}>
                     {g.name}{g.grade ? ` · ${g.grade} класс` : ""}
-                  </div>
+                  </Link>
                   <div className="card-meta">{subjectName(g.subjectId)} · учеников: {g.studentIds.length}</div>
                   {g.description && <p className="card-body" style={{ margin: "4px 0 0" }}>{g.description}</p>}
                   <div className="card-meta" style={{ marginTop: 4 }}>
@@ -132,7 +132,7 @@ export function TeacherGroupsPage() {
                   </div>
                 </div>
                 <div style={{ display: "flex", gap: 8 }}>
-                  <Link to="/teacher/calendar" className="btn btn-ghost btn-sm">Открыть в календаре</Link>
+                  <Link to={`/teacher/groups/${g.id}`} className="btn btn-primary btn-sm">Открыть группу</Link>
                   <Link to={`/teacher/calendar?newLessonGroup=${g.id}`} className="btn btn-secondary btn-sm">Добавить занятие</Link>
                 </div>
               </div>

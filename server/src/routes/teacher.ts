@@ -39,6 +39,110 @@ teacherRouter.get("/groups", (req: AuthedRequest, res) => {
   res.json(withMembers);
 });
 
+teacherRouter.get("/groups/:id", (req: AuthedRequest, res) => {
+  const teacherId = req.auth!.sub;
+  const groupId = pstr(req.params.id);
+  const group = db.select().from(s.groups).where(and(eq(s.groups.id, groupId), eq(s.groups.teacherId, teacherId))).get();
+  if (!group) return res.status(404).json({ error: "Группа не найдена" });
+
+  const memberIds = db.select().from(s.groupMembers).where(eq(s.groupMembers.groupId, groupId)).all().map((m) => m.studentUserId);
+  const allHomeworks = db.select().from(s.homeworks).all();
+  const allExerciseIds = allHomeworks.flatMap((hw) => (hw.sections as any[]).filter((sc) => sc.kind === "exercises").flatMap((sc) => sc.exercises.map((e: any) => e.id)));
+  const today = new Date().toISOString().slice(0, 10);
+  const nowIso = new Date().toISOString().slice(0, 16);
+
+  const groupLessons = db.select().from(s.lessons).where(eq(s.lessons.groupId, groupId)).all();
+  const doneLessonIds = groupLessons.filter((l) => l.status === "done").map((l) => l.id);
+  const attendanceRows = doneLessonIds.length
+    ? db.select().from(s.lessonAttendance).where(inArray(s.lessonAttendance.lessonId, doneLessonIds)).all()
+    : [];
+
+  const allResults: (typeof s.ctResults.$inferSelect)[] = [];
+  const students = memberIds.map((id) => {
+    const user = db.select().from(s.users).where(eq(s.users.id, id)).get()!;
+    const student = db.select().from(s.students).where(eq(s.students.userId, id)).get();
+    const results = db.select().from(s.ctResults).where(eq(s.ctResults.studentId, id)).all();
+    allResults.push(...results);
+    const avg = results.length ? Math.round(results.reduce((sum, r) => sum + r.score, 0) / results.length) : 0;
+
+    const statuses: Record<string, ExerciseStatus> = {};
+    db.select().from(s.homeworkAttempts).where(eq(s.homeworkAttempts.studentId, id)).all().forEach((a) => {
+      statuses[a.exerciseId] = a.status;
+    });
+    const progress = homeworkProgress(allExerciseIds, statuses);
+
+    const attempts = db.select().from(s.homeworkAttempts).where(eq(s.homeworkAttempts.studentId, id)).all();
+    const lastActive = attempts.reduce((max, a) => (a.updatedAt > max ? a.updatedAt : max), "");
+
+    const states = db.select().from(s.homeworkState).where(eq(s.homeworkState.studentId, id)).all();
+    const overdue = allHomeworks.filter((hw) => {
+      const st = states.find((x) => x.homeworkId === hw.id);
+      return hw.dueAt < today && !st?.submittedAt;
+    }).length;
+
+    const myAttendance = attendanceRows.filter((a) => a.studentId === id);
+    const attendancePct = myAttendance.length ? Math.round((myAttendance.filter((a) => a.status === "present").length / myAttendance.length) * 100) : null;
+
+    const risk = avg === 0 ? "risk" : avg < (student?.goalScore ?? 85) - 25 ? "risk" : avg < (student?.goalScore ?? 85) - 10 ? "attention" : "ok";
+
+    return {
+      id, name: `${user.name} ${user.lastName}`.trim(), avg, goal: student?.goalScore ?? 85,
+      done: progress.done, total: progress.total, overdue, lastActive: lastActive || null,
+      attendancePct, risk,
+    };
+  });
+
+  const avgScore = allResults.length ? Math.round(allResults.reduce((sum, r) => sum + r.score, 0) / allResults.length) : 0;
+
+  const topicSums = new Map<string, { sum: number; n: number }>();
+  allResults.forEach((r) => {
+    Object.entries(r.topicAccuracy as Record<string, number>).forEach(([topicId, pct]) => {
+      const e = topicSums.get(topicId) || { sum: 0, n: 0 };
+      e.sum += pct;
+      e.n += 1;
+      topicSums.set(topicId, e);
+    });
+  });
+  const weakTopics = Array.from(topicSums.entries())
+    .map(([topicId, v]) => ({ topicId, topicName: db.select().from(s.topics).where(eq(s.topics.id, topicId)).get()?.name ?? topicId, accuracy: Math.round(v.sum / v.n) }))
+    .sort((a, b) => a.accuracy - b.accuracy)
+    .slice(0, 6);
+
+  const homeworkStats = allHomeworks.map((hw) => {
+    const exerciseIds = (hw.sections as any[]).filter((sc) => sc.kind === "exercises").flatMap((sc) => sc.exercises.map((e: any) => e.id));
+    let groupDone = 0;
+    let submittedCount = 0;
+    let reviewedCount = 0;
+    memberIds.forEach((id) => {
+      const statuses: Record<string, ExerciseStatus> = {};
+      db.select().from(s.homeworkAttempts).where(and(eq(s.homeworkAttempts.studentId, id), eq(s.homeworkAttempts.homeworkId, hw.id))).all().forEach((a) => {
+        statuses[a.exerciseId] = a.status;
+      });
+      groupDone += homeworkProgress(exerciseIds, statuses).done;
+      const st = db.select().from(s.homeworkState).where(and(eq(s.homeworkState.studentId, id), eq(s.homeworkState.homeworkId, hw.id))).get();
+      if (st?.submittedAt) submittedCount += 1;
+      if (st?.reviewedAt) reviewedCount += 1;
+    });
+    return { id: hw.id, title: hw.title, dueAt: hw.dueAt, groupDone, groupTotal: exerciseIds.length * memberIds.length, submittedCount, reviewedCount };
+  });
+
+  const upcomingLessons = groupLessons
+    .filter((l) => l.status === "scheduled" && l.startAt >= nowIso)
+    .sort((a, b) => a.startAt.localeCompare(b.startAt))
+    .slice(0, 5)
+    .map((l) => ({ id: l.id, startAt: l.startAt, title: l.title }));
+  const recentLessons = groupLessons
+    .filter((l) => l.status !== "scheduled")
+    .sort((a, b) => b.startAt.localeCompare(a.startAt))
+    .slice(0, 5)
+    .map((l) => ({ id: l.id, startAt: l.startAt, title: l.title, status: l.status }));
+
+  res.json({
+    id: group.id, name: group.name, subjectId: group.subjectId, grade: group.grade, description: group.description,
+    students, avgScore, weakTopics, homeworkStats, upcomingLessons, recentLessons,
+  });
+});
+
 teacherRouter.post("/groups", (req: AuthedRequest, res) => {
   const teacherId = req.auth!.sub;
   const { name, subjectId, grade, description } = req.body || {};
