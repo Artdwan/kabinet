@@ -50,6 +50,13 @@
       "when": 1786829957241,
       "tag": "0006_swift_sabretooth",
       "breakpoints": true
+    },
+    {
+      "idx": 7,
+      "version": "6",
+      "when": 1786837009453,
+      "tag": "0007_slimy_the_fury",
+      "breakpoints": true
     }
   ]
 }

@@ -36,6 +36,17 @@ interface CreatedStudent {
   lastName: string;
 }
 
+interface PendingInvite {
+  token: string;
+  name: string;
+  lastName: string;
+  grade: number | null;
+  goalScore: number | null;
+  groupId: string | null;
+  groupName: string | null;
+  createdAt: string;
+}
+
 const RISK_LABEL: Record<string, { label: string; cls: string }> = {
   ok: { label: "В норме", cls: "tag-ok" },
   attention: { label: "Внимание", cls: "tag-accent" },
@@ -46,6 +57,7 @@ export function TeacherStudentsPage() {
   const navigate = useNavigate();
   const { data: roster = [], reload: reloadRoster } = useApiData<RosterRow[]>("/teacher/roster");
   const { data: groups = [], reload: reloadGroups } = useApiData<GroupRow[]>("/teacher/groups");
+  const { data: invites = [], reload: reloadInvites } = useApiData<PendingInvite[]>("/teacher/student-invites");
   const { show } = useToast();
 
   const [search, setSearch] = useState("");
@@ -55,6 +67,7 @@ export function TeacherStudentsPage() {
   const [view, setView] = useState<"table" | "cards">("table");
 
   const [addOpen, setAddOpen] = useState(false);
+  const [addMode, setAddMode] = useState<"invite" | "password">("invite");
   const [newStudentName, setNewStudentName] = useState("");
   const [newStudentLastName, setNewStudentLastName] = useState("");
   const [newStudentEmail, setNewStudentEmail] = useState("");
@@ -64,6 +77,7 @@ export function TeacherStudentsPage() {
   const [newStudentNote, setNewStudentNote] = useState("");
   const [creatingStudent, setCreatingStudent] = useState(false);
   const [createdStudent, setCreatedStudent] = useState<CreatedStudent | null>(null);
+  const [createdInviteLink, setCreatedInviteLink] = useState<string | null>(null);
   const [copiedField, setCopiedField] = useState<string | null>(null);
 
   const grades = useMemo(() => Array.from(new Set(roster.map((r) => r.grade))).sort((a, b) => a - b), [roster]);
@@ -87,27 +101,52 @@ export function TeacherStudentsPage() {
   };
 
   const createStudent = async () => {
-    if (!newStudentName.trim() || !newStudentEmail.trim()) return;
+    if (!newStudentName.trim()) return;
+    if (addMode === "password" && !newStudentEmail.trim()) return;
     setCreatingStudent(true);
     try {
-      const created = await api.post<CreatedStudent>("/teacher/students", {
-        name: newStudentName.trim(),
-        lastName: newStudentLastName.trim(),
-        email: newStudentEmail.trim(),
-        groupId: newStudentGroup || undefined,
-        grade: newStudentGrade || undefined,
-        goalScore: newStudentGoal || undefined,
-        note: newStudentNote.trim() || undefined,
-      });
-      setCreatedStudent(created);
+      if (addMode === "invite") {
+        const { token } = await api.post<{ token: string }>("/teacher/student-invites", {
+          name: newStudentName.trim(),
+          lastName: newStudentLastName.trim(),
+          groupId: newStudentGroup || undefined,
+          grade: newStudentGrade || undefined,
+          goalScore: newStudentGoal || undefined,
+          note: newStudentNote.trim() || undefined,
+        });
+        setCreatedInviteLink(`${window.location.origin}/invite/${token}`);
+        show("Приглашение создано", "ok");
+        reloadInvites();
+      } else {
+        const created = await api.post<CreatedStudent>("/teacher/students", {
+          name: newStudentName.trim(),
+          lastName: newStudentLastName.trim(),
+          email: newStudentEmail.trim(),
+          groupId: newStudentGroup || undefined,
+          grade: newStudentGrade || undefined,
+          goalScore: newStudentGoal || undefined,
+          note: newStudentNote.trim() || undefined,
+        });
+        setCreatedStudent(created);
+        show("Ученик создан", "ok");
+        reloadRoster();
+      }
       resetForm();
-      show("Ученик создан", "ok");
       reloadGroups();
-      reloadRoster();
     } catch (e) {
-      show(e instanceof ApiError ? e.message : "Не удалось создать ученика", "bad");
+      show(e instanceof ApiError ? e.message : "Не удалось выполнить действие", "bad");
     } finally {
       setCreatingStudent(false);
+    }
+  };
+
+  const cancelInvite = async (token: string) => {
+    try {
+      await api.del(`/teacher/student-invites/${token}`);
+      show("Приглашение отменено", "ok");
+      reloadInvites();
+    } catch (e) {
+      show(e instanceof ApiError ? e.message : "Не удалось отменить приглашение", "bad");
     }
   };
 
@@ -168,6 +207,29 @@ export function TeacherStudentsPage() {
         </select>
       </div>
 
+      {invites.length > 0 && (
+        <div className="card" style={{ borderColor: "var(--color-accent)" }}>
+          <div className="card-title" style={{ fontSize: 14 }}>Ожидают регистрации ({invites.length})</div>
+          <div style={{ display: "flex", flexDirection: "column", gap: 8, marginTop: 8 }}>
+            {invites.map((inv) => (
+              <div key={inv.token} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
+                <div style={{ fontSize: 13.5 }}>
+                  {inv.name} {inv.lastName}
+                  {inv.groupName && <span className="card-meta"> · {inv.groupName}</span>}
+                </div>
+                <div style={{ display: "flex", gap: 6 }}>
+                  <span className="tag tag-accent">Ожидает регистрации</span>
+                  <button type="button" className="btn btn-ghost btn-sm" onClick={() => copy(inv.token, `${window.location.origin}/invite/${inv.token}`)}>
+                    {copiedField === inv.token ? "Скопировано" : "Ссылка"}
+                  </button>
+                  <button type="button" className="btn btn-ghost btn-sm" onClick={() => cancelInvite(inv.token)}>Отменить</button>
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
       {rows.length === 0 ? (
         <div className="card-meta">{roster.length === 0 ? "Учеников пока нет — добавьте первого." : "Ничего не найдено по этим фильтрам."}</div>
       ) : view === "table" ? (
@@ -227,13 +289,31 @@ export function TeacherStudentsPage() {
           actions={
             <>
               <button type="button" className="btn btn-secondary" onClick={() => setAddOpen(false)}>Закрыть</button>
-              <button type="button" className="btn btn-primary" disabled={!newStudentName.trim() || !newStudentEmail.trim() || creatingStudent} onClick={createStudent}>
-                Создать
+              <button
+                type="button"
+                className="btn btn-primary"
+                disabled={!newStudentName.trim() || (addMode === "password" && !newStudentEmail.trim()) || creatingStudent}
+                onClick={createStudent}
+              >
+                {addMode === "invite" ? "Создать приглашение" : "Создать"}
               </button>
             </>
           }
         >
           <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+            <div className="seg" style={{ alignSelf: "flex-start" }}>
+              <button type="button" className="seg-opt" style={addMode === "invite" ? { color: "var(--color-accent)", background: "var(--color-accent-100)" } : undefined} onClick={() => setAddMode("invite")}>
+                Пригласить ссылкой
+              </button>
+              <button type="button" className="seg-opt" style={addMode === "password" ? { color: "var(--color-accent)", background: "var(--color-accent-100)" } : undefined} onClick={() => setAddMode("password")}>
+                Создать с паролем
+              </button>
+            </div>
+            <p className="card-meta" style={{ margin: 0 }}>
+              {addMode === "invite"
+                ? "Ученик сам выберет email и пароль по ссылке-приглашению. В списке появится как «Ожидает регистрации», пока не зарегистрируется."
+                : "Вы сразу указываете email, система выдаст пароль для первого входа."}
+            </p>
             <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
               <div className="field" style={{ flex: 1, minWidth: 160 }}>
                 <label>Имя</label>
@@ -244,10 +324,12 @@ export function TeacherStudentsPage() {
                 <input className="input" value={newStudentLastName} onChange={(e) => setNewStudentLastName(e.target.value)} placeholder="Ковалевич" />
               </div>
             </div>
-            <div className="field">
-              <label>Email для входа</label>
-              <input className="input" type="email" value={newStudentEmail} onChange={(e) => setNewStudentEmail(e.target.value)} placeholder="ученик@example.com" />
-            </div>
+            {addMode === "password" && (
+              <div className="field">
+                <label>Email для входа</label>
+                <input className="input" type="email" value={newStudentEmail} onChange={(e) => setNewStudentEmail(e.target.value)} placeholder="ученик@example.com" />
+              </div>
+            )}
             <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
               <div className="field" style={{ minWidth: 120 }}>
                 <label>Класс</label>
@@ -300,6 +382,27 @@ export function TeacherStudentsPage() {
                 </button>
               </div>
             ))}
+          </div>
+        </Modal>
+      )}
+
+      {createdInviteLink && (
+        <Modal
+          title="Приглашение создано"
+          onClose={() => { setCreatedInviteLink(null); setAddOpen(false); }}
+          actions={<button type="button" className="btn btn-primary" onClick={() => { setCreatedInviteLink(null); setAddOpen(false); }}>Готово</button>}
+        >
+          <p className="card-body" style={{ margin: "0 0 8px" }}>
+            Отправьте ученику эту ссылку — он перейдёт по ней, зарегистрируется сам, и появится в списке учеников.
+            Пока он не зарегистрировался, приглашение будет отмечено как «Ожидает регистрации».
+          </p>
+          <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
+            <code style={{ padding: "5px 9px", background: "var(--color-surface-2)", borderRadius: "var(--radius-sm)", fontSize: 12.5, wordBreak: "break-all", flex: 1 }}>
+              {createdInviteLink}
+            </code>
+            <button type="button" className="btn btn-ghost btn-sm" onClick={() => copy("invite-link", createdInviteLink)}>
+              {copiedField === "invite-link" ? "Скопировано" : "Копировать"}
+            </button>
           </div>
         </Modal>
       )}

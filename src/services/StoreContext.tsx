@@ -11,6 +11,7 @@ interface RegisterInput {
   name: string;
   lastName?: string;
   extra?: string;
+  inviteToken?: string;
 }
 
 interface StoreContextValue {

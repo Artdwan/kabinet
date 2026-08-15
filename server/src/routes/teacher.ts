@@ -13,9 +13,11 @@ teacherRouter.use(requireAuth, requireRole("teacher"));
 
 function teacherStudentIds(teacherId: string): string[] {
   const groupIds = db.select({ id: s.groups.id }).from(s.groups).where(eq(s.groups.teacherId, teacherId)).all().map((g) => g.id);
-  if (!groupIds.length) return [];
-  const members = db.select().from(s.groupMembers).where(inArray(s.groupMembers.groupId, groupIds)).all();
-  return Array.from(new Set(members.map((m) => m.studentUserId)));
+  const fromGroups = groupIds.length
+    ? db.select().from(s.groupMembers).where(inArray(s.groupMembers.groupId, groupIds)).all().map((m) => m.studentUserId)
+    : [];
+  const fromDirect = db.select({ id: s.students.userId }).from(s.students).where(eq(s.students.teacherId, teacherId)).all().map((r) => r.id);
+  return Array.from(new Set([...fromGroups, ...fromDirect]));
 }
 
 teacherRouter.get("/groups", (req: AuthedRequest, res) => {
@@ -319,6 +321,57 @@ teacherRouter.post("/students", (req: AuthedRequest, res) => {
   if (group) db.insert(s.groupMembers).values({ groupId: group.id, studentUserId: id }).run();
 
   res.json({ id, email: String(email).trim(), password, name: String(name).trim(), lastName: String(lastName || "").trim() });
+});
+
+teacherRouter.get("/student-invites", (req: AuthedRequest, res) => {
+  const teacherId = req.auth!.sub;
+  const invites = db.select().from(s.studentInvites).where(eq(s.studentInvites.teacherId, teacherId)).all();
+  const list = invites
+    .filter((inv) => !inv.acceptedUserId)
+    .sort((a, b) => b.createdAt.localeCompare(a.createdAt))
+    .map((inv) => {
+      const group = inv.groupId ? db.select().from(s.groups).where(eq(s.groups.id, inv.groupId)).get() : undefined;
+      return {
+        token: inv.token, name: inv.name, lastName: inv.lastName,
+        grade: inv.grade, goalScore: inv.goalScore, note: inv.note,
+        groupId: inv.groupId, groupName: group?.name ?? null,
+        createdAt: inv.createdAt,
+      };
+    });
+  res.json(list);
+});
+
+teacherRouter.post("/student-invites", (req: AuthedRequest, res) => {
+  const teacherId = req.auth!.sub;
+  const { name, lastName, groupId, grade, goalScore, note } = req.body || {};
+  if (!name || !String(name).trim()) return res.status(400).json({ error: "Укажите имя ученика" });
+
+  if (groupId) {
+    const group = db.select().from(s.groups).where(and(eq(s.groups.id, groupId), eq(s.groups.teacherId, teacherId))).get();
+    if (!group) return res.status(404).json({ error: "Группа не найдена" });
+  }
+
+  const token = randomBytes(20).toString("base64url");
+  db.insert(s.studentInvites)
+    .values({
+      token, teacherId, groupId: groupId || null,
+      name: String(name).trim(), lastName: String(lastName || "").trim(),
+      grade: grade ? Number(grade) : null,
+      goalScore: goalScore ? Number(goalScore) : null,
+      note: note && String(note).trim() ? String(note).trim() : null,
+      createdAt: new Date().toISOString(),
+    })
+    .run();
+  res.json({ token });
+});
+
+teacherRouter.delete("/student-invites/:token", (req: AuthedRequest, res) => {
+  const teacherId = req.auth!.sub;
+  const token = pstr(req.params.token);
+  const invite = db.select().from(s.studentInvites).where(and(eq(s.studentInvites.token, token), eq(s.studentInvites.teacherId, teacherId))).get();
+  if (!invite) return res.status(404).json({ error: "Приглашение не найдено" });
+  db.delete(s.studentInvites).where(eq(s.studentInvites.token, token)).run();
+  res.json({ ok: true });
 });
 
 teacherRouter.delete("/groups/:groupId/members/:studentId", (req: AuthedRequest, res) => {

@@ -13,8 +13,20 @@ function publicAccount(u: typeof s.users.$inferSelect) {
   return { id: u.id, role: u.role, login: u.email, name: u.name, lastName: u.lastName, extra: u.extra };
 }
 
+authRouter.get("/student-invite/:token", (req, res) => {
+  const invite = db.select().from(s.studentInvites).where(eq(s.studentInvites.token, String(req.params.token))).get();
+  if (!invite || invite.acceptedUserId) return res.status(404).json({ error: "Приглашение не найдено или уже использовано" });
+  const teacher = db.select().from(s.users).where(eq(s.users.id, invite.teacherId)).get();
+  const group = invite.groupId ? db.select().from(s.groups).where(eq(s.groups.id, invite.groupId)).get() : undefined;
+  res.json({
+    name: invite.name, lastName: invite.lastName,
+    teacherName: teacher ? `${teacher.name} ${teacher.lastName}`.trim() : "",
+    groupName: group?.name ?? null,
+  });
+});
+
 authRouter.post("/register", async (req, res) => {
-  const { role, email, password, name, lastName, extra } = req.body || {};
+  const { role, email, password, name, lastName, extra, inviteToken } = req.body || {};
   if (!role || !["student", "teacher", "parent"].includes(role)) return res.status(400).json({ error: "Некорректная роль" });
   if (!email || !String(email).includes("@")) return res.status(400).json({ error: "Введите корректный email" });
   if (!password || String(password).length < 6) return res.status(400).json({ error: "Пароль должен быть не короче 6 символов" });
@@ -22,6 +34,12 @@ authRouter.post("/register", async (req, res) => {
 
   const existing = db.select().from(s.users).where(eq(s.users.email, email)).get();
   if (existing) return res.status(409).json({ error: "Такой email уже зарегистрирован" });
+
+  let invite: typeof s.studentInvites.$inferSelect | undefined;
+  if (inviteToken && role === "student") {
+    invite = db.select().from(s.studentInvites).where(eq(s.studentInvites.token, String(inviteToken))).get();
+    if (!invite || invite.acceptedUserId) return res.status(400).json({ error: "Приглашение не найдено или уже использовано" });
+  }
 
   const id = randomUUID();
   const passwordHash = bcrypt.hashSync(String(password), 10);
@@ -31,7 +49,20 @@ authRouter.post("/register", async (req, res) => {
   db.insert(s.settings).values({ userId: id, instantCheck: true, reduceMotion: false, compactCards: false }).run();
 
   if (role === "student") {
-    db.insert(s.students).values({ userId: id, grade: 11, city: "", goalScore: 85, teacherId: null }).run();
+    db.insert(s.students)
+      .values({
+        userId: id,
+        grade: invite?.grade ?? 11,
+        city: "",
+        goalScore: invite?.goalScore ?? 85,
+        teacherId: invite?.teacherId ?? null,
+        note: invite?.note ?? null,
+      })
+      .run();
+    if (invite) {
+      if (invite.groupId) db.insert(s.groupMembers).values({ groupId: invite.groupId, studentUserId: id }).run();
+      db.update(s.studentInvites).set({ acceptedUserId: id, acceptedAt: new Date().toISOString() }).where(eq(s.studentInvites.token, invite.token)).run();
+    }
   }
   if (role === "parent" && extra) {
     // "extra" doubles as the child's account id/code the parent was given by the teacher.

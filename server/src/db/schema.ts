@@ -65,6 +65,20 @@ export const groupMembers = sqliteTable(
   (t) => [primaryKey({ columns: [t.groupId, t.studentUserId] })],
 );
 
+export const studentInvites = sqliteTable("student_invites", {
+  token: text("token").primaryKey(),
+  teacherId: text("teacher_id").notNull().references(() => users.id),
+  groupId: text("group_id").references(() => groups.id),
+  name: text("name").notNull(),
+  lastName: text("last_name").notNull().default(""),
+  grade: integer("grade"),
+  goalScore: integer("goal_score"),
+  note: text("note"),
+  createdAt: text("created_at").notNull(),
+  acceptedUserId: text("accepted_user_id").references(() => users.id),
+  acceptedAt: text("accepted_at"),
+});
+
 export const lessons = sqliteTable("lessons", {
   id: text("id").primaryKey(),
   teacherId: text("teacher_id").notNull().references(() => users.id),
