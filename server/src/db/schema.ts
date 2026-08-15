@@ -47,6 +47,13 @@ export const groups = sqliteTable("groups", {
   subjectId: text("subject_id").notNull(),
   grade: integer("grade"),
   description: text("description"),
+  direction: text("direction", { enum: ["ct", "school", "improvement"] }),
+  goal: text("goal"),
+  scheduleNote: text("schedule_note"),
+  startDate: text("start_date"),
+  color: text("color"),
+  maxStudents: integer("max_students"),
+  hwDefaults: text("hw_defaults", { mode: "json" }), // { dueDays, hintsAllowed, showSolutions, maxAttempts, remindersEnabled }
 });
 
 export const groupMembers = sqliteTable(
@@ -71,6 +78,17 @@ export const lessons = sqliteTable("lessons", {
   status: text("status", { enum: ["scheduled", "done", "cancelled"] }).notNull().default("scheduled"),
   seriesId: text("series_id"),
   note: text("note"),
+  createdAt: text("created_at").notNull(),
+});
+
+export const materials = sqliteTable("materials", {
+  id: text("id").primaryKey(),
+  teacherId: text("teacher_id").notNull().references(() => users.id),
+  groupId: text("group_id").references(() => groups.id),
+  title: text("title").notNull(),
+  type: text("type", { enum: ["theory", "formula", "example", "video", "pdf", "task", "recording", "other"] }).notNull().default("other"),
+  url: text("url"),
+  content: text("content"),
   createdAt: text("created_at").notNull(),
 });
 

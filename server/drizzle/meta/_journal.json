@@ -43,6 +43,13 @@
       "when": 1786822273380,
       "tag": "0005_outgoing_northstar",
       "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "6",
+      "when": 1786829957241,
+      "tag": "0006_swift_sabretooth",
+      "breakpoints": true
     }
   ]
 }

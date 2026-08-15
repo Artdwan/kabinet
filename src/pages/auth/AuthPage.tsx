@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { useSearchParams } from "react-router-dom";
+import { useNavigate, useSearchParams } from "react-router-dom";
 import type { Role } from "../../types";
 import { ROLES } from "../../data/roles";
 import { useStore } from "../../services/StoreContext";
@@ -13,8 +13,10 @@ const EXTRA_FIELD: Record<Role, { label: string; placeholder: string }> = {
 
 export function AuthPage() {
   const { login, register } = useStore();
+  const navigate = useNavigate();
   const [searchParams] = useSearchParams();
   const linkChild = searchParams.get("linkChild");
+  const joinGroup = searchParams.get("joinGroup");
   const [mode, setMode] = useState<"login" | "register" | "forgot">(linkChild ? "register" : "login");
   const [role, setRole] = useState<Role>(linkChild ? "parent" : "student");
   const [name, setName] = useState("");
@@ -78,6 +80,7 @@ export function AuthPage() {
       } else {
         await login(email, password);
       }
+      if (joinGroup) navigate(`/join-group/${joinGroup}`, { replace: true });
     } catch (e) {
       handleError(e);
     } finally {
@@ -102,6 +105,11 @@ export function AuthPage() {
         {linkChild && (
           <div style={{ border: "1px solid var(--color-accent)", background: "var(--color-accent-100)", color: "var(--color-accent)", borderRadius: "var(--radius-sm)", padding: "10px 12px", fontSize: 12.5 }}>
             Вы регистрируетесь как родитель — аккаунт будет автоматически привязан к ученику.
+          </div>
+        )}
+        {joinGroup && (
+          <div style={{ border: "1px solid var(--color-accent)", background: "var(--color-accent-100)", color: "var(--color-accent)", borderRadius: "var(--radius-sm)", padding: "10px 12px", fontSize: 12.5 }}>
+            Войдите или зарегистрируйтесь как ученик — вы будете автоматически добавлены в группу преподавателя.
           </div>
         )}
 
@@ -129,7 +137,7 @@ export function AuthPage() {
                   justifyContent: "flex-start",
                 }}
               >
-                <input type="radio" name="role" checked={role === r.id} disabled={!!linkChild} onChange={() => setRole(r.id)} />
+                <input type="radio" name="role" checked={role === r.id} disabled={!!linkChild || !!joinGroup} onChange={() => setRole(r.id)} />
                 <span className="dot" />
                 <span>
                   <div style={{ fontSize: 13.5 }}>{r.name}</div>

@@ -1,7 +1,9 @@
 import { useState } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
-import { ArrowLeft } from "lucide-react";
+import { ArrowLeft, Trash2 } from "lucide-react";
 import { useApiData } from "../../services/useApiData";
+import { api, ApiError } from "../../services/apiClient";
+import { useToast } from "../../services/ToastContext";
 import { fmtDate } from "../../services/mockApi";
 import { MetricCard } from "../../components/MetricCard";
 import { SUBJECTS } from "../../data/content";
@@ -42,6 +44,36 @@ interface LessonBrief {
   status?: string;
 }
 
+interface LessonRow {
+  id: string;
+  startAt: string;
+  title: string;
+  durationMinutes: number;
+  format: "online" | "offline";
+  location: string;
+  status: "scheduled" | "done" | "cancelled";
+}
+
+interface MaterialRow {
+  id: string;
+  title: string;
+  type: string;
+  url: string | null;
+  content: string | null;
+  createdAt: string;
+}
+
+const MATERIAL_TYPE_LABEL: Record<string, string> = {
+  theory: "Теория", formula: "Формулы", example: "Пример", video: "Видео",
+  pdf: "PDF", task: "Задания", recording: "Запись занятия", other: "Другое",
+};
+
+const LESSON_STATUS_LABEL: Record<string, { label: string; cls: string }> = {
+  scheduled: { label: "Запланировано", cls: "tag-accent" },
+  done: { label: "Проведено", cls: "tag-ok" },
+  cancelled: { label: "Отменено", cls: "tag-bad" },
+};
+
 interface GroupWorkspace {
   id: string;
   name: string;
@@ -62,13 +94,46 @@ const RISK_LABEL: Record<string, { label: string; cls: string }> = {
   risk: { label: "Требует внимания", cls: "tag-bad" },
 };
 
-type Tab = "overview" | "students" | "homework" | "progress";
+type Tab = "overview" | "students" | "lessons" | "homework" | "materials" | "progress";
 
 export function TeacherGroupWorkspacePage() {
   const { id } = useParams();
   const navigate = useNavigate();
+  const { show } = useToast();
   const { data: g } = useApiData<GroupWorkspace>(`/teacher/groups/${id}`);
+  const { data: lessons = [] } = useApiData<LessonRow[]>(`/teacher/lessons?groupId=${id}`);
+  const { data: materials = [], reload: reloadMaterials } = useApiData<MaterialRow[]>(`/teacher/materials?groupId=${id}`);
   const [tab, setTab] = useState<Tab>("overview");
+
+  const [materialTitle, setMaterialTitle] = useState("");
+  const [materialType, setMaterialType] = useState("theory");
+  const [materialUrl, setMaterialUrl] = useState("");
+  const [savingMaterial, setSavingMaterial] = useState(false);
+
+  const addMaterial = async () => {
+    if (!id || !materialTitle.trim()) return;
+    setSavingMaterial(true);
+    try {
+      await api.post("/teacher/materials", { groupId: id, title: materialTitle.trim(), type: materialType, url: materialUrl.trim() || undefined });
+      show("Материал добавлен", "ok");
+      setMaterialTitle("");
+      setMaterialUrl("");
+      reloadMaterials();
+    } catch (e) {
+      show(e instanceof ApiError ? e.message : "Не удалось добавить материал", "bad");
+    } finally {
+      setSavingMaterial(false);
+    }
+  };
+
+  const deleteMaterial = async (materialId: string) => {
+    try {
+      await api.del(`/teacher/materials/${materialId}`);
+      reloadMaterials();
+    } catch (e) {
+      show(e instanceof ApiError ? e.message : "Не удалось удалить материал", "bad");
+    }
+  };
 
   if (!g) return <div className="card-meta">Загрузка…</div>;
 
@@ -92,10 +157,12 @@ export function TeacherGroupWorkspacePage() {
         <MetricCard label="Требуют внимания" value={needAttention.length} tone={needAttention.length ? "bad" : "ok"} />
       </div>
 
-      <div className="seg" style={{ alignSelf: "flex-start" }}>
+      <div className="seg" style={{ alignSelf: "flex-start", flexWrap: "wrap" }}>
         <button type="button" className="seg-opt" style={tab === "overview" ? { color: "var(--color-accent)", background: "var(--color-accent-100)" } : undefined} onClick={() => setTab("overview")}>Обзор</button>
         <button type="button" className="seg-opt" style={tab === "students" ? { color: "var(--color-accent)", background: "var(--color-accent-100)" } : undefined} onClick={() => setTab("students")}>Ученики</button>
+        <button type="button" className="seg-opt" style={tab === "lessons" ? { color: "var(--color-accent)", background: "var(--color-accent-100)" } : undefined} onClick={() => setTab("lessons")}>Занятия</button>
         <button type="button" className="seg-opt" style={tab === "homework" ? { color: "var(--color-accent)", background: "var(--color-accent-100)" } : undefined} onClick={() => setTab("homework")}>Домашние задания</button>
+        <button type="button" className="seg-opt" style={tab === "materials" ? { color: "var(--color-accent)", background: "var(--color-accent-100)" } : undefined} onClick={() => setTab("materials")}>Материалы</button>
         <button type="button" className="seg-opt" style={tab === "progress" ? { color: "var(--color-accent)", background: "var(--color-accent-100)" } : undefined} onClick={() => setTab("progress")}>Прогресс</button>
       </div>
 
@@ -176,6 +243,71 @@ export function TeacherGroupWorkspacePage() {
             {g.students.length === 0 && <tr><td colSpan={6} className="card-meta">В группе пока нет учеников.</td></tr>}
           </tbody>
         </table>
+      )}
+
+      {tab === "lessons" && (
+        <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+          <Link to={`/teacher/calendar?newLessonGroup=${g.id}`} className="btn btn-secondary btn-sm" style={{ alignSelf: "flex-start" }}>
+            Добавить занятие
+          </Link>
+          <table className="table">
+            <thead>
+              <tr>
+                <th>Дата</th>
+                <th>Время</th>
+                <th>Тема</th>
+                <th>Формат</th>
+                <th>Статус</th>
+              </tr>
+            </thead>
+            <tbody>
+              {lessons.map((l) => (
+                <tr key={l.id}>
+                  <td>{fmtDate(l.startAt.slice(0, 10))}</td>
+                  <td>{l.startAt.slice(11, 16)} · {l.durationMinutes} мин</td>
+                  <td>{l.title || "—"}</td>
+                  <td>{l.format === "online" ? "Онлайн" : "Очно"}{l.location ? ` · ${l.location}` : ""}</td>
+                  <td><span className={`tag ${LESSON_STATUS_LABEL[l.status].cls}`}>{LESSON_STATUS_LABEL[l.status].label}</span></td>
+                </tr>
+              ))}
+              {lessons.length === 0 && <tr><td colSpan={5} className="card-meta">Занятий пока не было.</td></tr>}
+            </tbody>
+          </table>
+        </div>
+      )}
+
+      {tab === "materials" && (
+        <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
+          <div className="card">
+            <div className="card-title" style={{ fontSize: 14 }}>Добавить материал</div>
+            <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginTop: 8 }}>
+              <input className="input" style={{ flex: 2, minWidth: 180 }} value={materialTitle} onChange={(e) => setMaterialTitle(e.target.value)} placeholder="Название" />
+              <select className="input" style={{ flex: 1, minWidth: 160 }} value={materialType} onChange={(e) => setMaterialType(e.target.value)}>
+                {Object.entries(MATERIAL_TYPE_LABEL).map(([k, v]) => <option key={k} value={k}>{v}</option>)}
+              </select>
+              <input className="input" style={{ flex: 2, minWidth: 180 }} value={materialUrl} onChange={(e) => setMaterialUrl(e.target.value)} placeholder="Ссылка (необязательно)" />
+              <button type="button" className="btn btn-primary btn-sm" disabled={!materialTitle.trim() || savingMaterial} onClick={addMaterial}>Добавить</button>
+            </div>
+          </div>
+
+          {materials.length === 0 ? (
+            <div className="card-meta">Материалов пока нет.</div>
+          ) : (
+            <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+              {materials.map((m) => (
+                <div key={m.id} className="card" style={{ display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: 8 }}>
+                  <div>
+                    <span className="tag tag-neutral" style={{ marginRight: 8 }}>{MATERIAL_TYPE_LABEL[m.type] ?? m.type}</span>
+                    {m.url ? <a href={m.url} target="_blank" rel="noreferrer">{m.title}</a> : <span>{m.title}</span>}
+                  </div>
+                  <button type="button" className="btn btn-ghost btn-sm" onClick={() => deleteMaterial(m.id)} title="Удалить">
+                    <Trash2 size={14} />
+                  </button>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
       )}
 
       {tab === "homework" && (

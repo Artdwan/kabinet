@@ -4,6 +4,7 @@ import { ToastProvider } from "./services/ToastContext";
 import { AppShell } from "./components/AppShell";
 import { AuthPage } from "./pages/auth/AuthPage";
 import { ResetPasswordPage } from "./pages/auth/ResetPasswordPage";
+import { JoinGroupPage } from "./pages/auth/JoinGroupPage";
 import { HomePage } from "./pages/student/HomePage";
 import { HomeworkListPage } from "./pages/student/HomeworkListPage";
 import { HomeworkReaderPage } from "./pages/student/HomeworkReaderPage";
@@ -44,6 +45,7 @@ function AppRoutes() {
     return (
       <Routes>
         <Route path="reset-password" element={<ResetPasswordPage />} />
+        <Route path="join-group/:groupId" element={<JoinGroupPage />} />
         <Route path="*" element={<AuthPage />} />
       </Routes>
     );
@@ -51,6 +53,7 @@ function AppRoutes() {
 
   return (
     <Routes>
+      <Route path="join-group/:groupId" element={<JoinGroupPage />} />
       <Route element={<AppShell />}>
         <Route index element={<RoleHomeRedirect />} />
         <Route path="home" element={<HomePage />} />

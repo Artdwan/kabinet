@@ -21,19 +21,54 @@ function teacherStudentIds(teacherId: string): string[] {
 teacherRouter.get("/groups", (req: AuthedRequest, res) => {
   const teacherId = req.auth!.sub;
   const nowIso = new Date().toISOString().slice(0, 16);
+  const today = new Date().toISOString().slice(0, 10);
   const groups = db.select().from(s.groups).where(eq(s.groups.teacherId, teacherId)).all();
+  const allHomeworks = db.select().from(s.homeworks).all();
+
   const withMembers = groups.map((g) => {
-    const upcoming = db
-      .select()
-      .from(s.lessons)
-      .where(and(eq(s.lessons.groupId, g.id), eq(s.lessons.status, "scheduled")))
-      .all()
-      .filter((l) => l.startAt >= nowIso)
+    const groupLessons = db.select().from(s.lessons).where(eq(s.lessons.groupId, g.id)).all();
+    const upcoming = groupLessons
+      .filter((l) => l.status === "scheduled" && l.startAt >= nowIso)
       .sort((a, b) => a.startAt.localeCompare(b.startAt))[0];
+    const lastDone = groupLessons
+      .filter((l) => l.status === "done")
+      .sort((a, b) => b.startAt.localeCompare(a.startAt))[0];
+
+    const studentIds = db.select().from(s.groupMembers).where(eq(s.groupMembers.groupId, g.id)).all().map((m) => m.studentUserId);
+
+    const results = studentIds.flatMap((id) => db.select().from(s.ctResults).where(eq(s.ctResults.studentId, id)).all());
+    const avgScore = results.length ? Math.round(results.reduce((sum, r) => sum + r.score, 0) / results.length) : 0;
+
+    let attentionCount = 0;
+    studentIds.forEach((id) => {
+      const student = db.select().from(s.students).where(eq(s.students.userId, id)).get();
+      const myResults = results.filter((r) => r.studentId === id);
+      const avg = myResults.length ? Math.round(myResults.reduce((sum, r) => sum + r.score, 0) / myResults.length) : 0;
+      const goal = student?.goalScore ?? 85;
+      if (avg === 0 || avg < goal - 10) attentionCount += 1;
+    });
+
+    const latestHomework = allHomeworks
+      .filter((hw) => hw.assignedAt <= today)
+      .sort((a, b) => b.assignedAt.localeCompare(a.assignedAt))[0];
+    let lastHomework: { title: string; done: number; total: number } | null = null;
+    if (latestHomework && studentIds.length) {
+      let done = 0;
+      studentIds.forEach((id) => {
+        const st = db.select().from(s.homeworkState).where(and(eq(s.homeworkState.studentId, id), eq(s.homeworkState.homeworkId, latestHomework.id))).get();
+        if (st?.submittedAt) done += 1;
+      });
+      lastHomework = { title: latestHomework.title, done, total: studentIds.length };
+    }
+
     return {
       ...g,
-      studentIds: db.select().from(s.groupMembers).where(eq(s.groupMembers.groupId, g.id)).all().map((m) => m.studentUserId),
+      studentIds,
       nextLesson: upcoming ? { id: upcoming.id, startAt: upcoming.startAt, title: upcoming.title } : null,
+      currentTopic: (upcoming || lastDone)?.title || null,
+      avgScore,
+      attentionCount,
+      lastHomework,
     };
   });
   res.json(withMembers);
@@ -139,38 +174,113 @@ teacherRouter.get("/groups/:id", (req: AuthedRequest, res) => {
 
   res.json({
     id: group.id, name: group.name, subjectId: group.subjectId, grade: group.grade, description: group.description,
+    direction: group.direction, goal: group.goal, scheduleNote: group.scheduleNote, startDate: group.startDate,
+    color: group.color, maxStudents: group.maxStudents, hwDefaults: group.hwDefaults,
     students, avgScore, weakTopics, homeworkStats, upcomingLessons, recentLessons,
   });
 });
 
+function groupFieldsFromBody(body: any) {
+  const patch: Partial<typeof s.groups.$inferInsert> = {};
+  if (body.name !== undefined) patch.name = String(body.name).trim();
+  if (body.subjectId !== undefined) patch.subjectId = body.subjectId;
+  if (body.grade !== undefined) patch.grade = body.grade === null || body.grade === "" ? null : Number(body.grade);
+  if (body.description !== undefined) patch.description = body.description && String(body.description).trim() ? String(body.description).trim() : null;
+  if (body.direction !== undefined) patch.direction = body.direction || null;
+  if (body.goal !== undefined) patch.goal = body.goal && String(body.goal).trim() ? String(body.goal).trim() : null;
+  if (body.scheduleNote !== undefined) patch.scheduleNote = body.scheduleNote && String(body.scheduleNote).trim() ? String(body.scheduleNote).trim() : null;
+  if (body.startDate !== undefined) patch.startDate = body.startDate || null;
+  if (body.color !== undefined) patch.color = body.color || null;
+  if (body.maxStudents !== undefined) patch.maxStudents = body.maxStudents === null || body.maxStudents === "" ? null : Number(body.maxStudents);
+  if (body.hwDefaults !== undefined) patch.hwDefaults = body.hwDefaults || null;
+  return patch;
+}
+
 teacherRouter.post("/groups", (req: AuthedRequest, res) => {
   const teacherId = req.auth!.sub;
-  const { name, subjectId, grade, description } = req.body || {};
+  const { name, subjectId } = req.body || {};
   if (!name || !String(name).trim()) return res.status(400).json({ error: "Укажите название группы" });
   if (!subjectId) return res.status(400).json({ error: "Укажите предмет" });
   const id = randomUUID();
-  const gradeValue = grade === undefined || grade === null || grade === "" ? null : Number(grade);
-  const descriptionValue = description && String(description).trim() ? String(description).trim() : null;
-  db.insert(s.groups).values({ id, name: String(name).trim(), teacherId, subjectId, grade: gradeValue, description: descriptionValue }).run();
-  res.json({ id, name: String(name).trim(), teacherId, subjectId, grade: gradeValue, description: descriptionValue, studentIds: [] });
+  const fields = groupFieldsFromBody(req.body || {});
+  db.insert(s.groups).values({ id, teacherId, name: String(name).trim(), subjectId, ...fields }).run();
+  const group = db.select().from(s.groups).where(eq(s.groups.id, id)).get()!;
+  res.json({ ...group, studentIds: [] });
+});
+
+teacherRouter.patch("/groups/:id", (req: AuthedRequest, res) => {
+  const teacherId = req.auth!.sub;
+  const groupId = pstr(req.params.id);
+  const group = db.select().from(s.groups).where(and(eq(s.groups.id, groupId), eq(s.groups.teacherId, teacherId))).get();
+  if (!group) return res.status(404).json({ error: "Группа не найдена" });
+  const patch = groupFieldsFromBody(req.body || {});
+  db.update(s.groups).set(patch).where(eq(s.groups.id, groupId)).run();
+  res.json({ ok: true });
 });
 
 teacherRouter.post("/groups/:groupId/members", (req: AuthedRequest, res) => {
   const teacherId = req.auth!.sub;
   const groupId = pstr(req.params.groupId);
-  const { email } = req.body || {};
+  const { email, studentId } = req.body || {};
   const group = db.select().from(s.groups).where(and(eq(s.groups.id, groupId), eq(s.groups.teacherId, teacherId))).get();
   if (!group) return res.status(404).json({ error: "Группа не найдена" });
-  if (!email) return res.status(400).json({ error: "Укажите email ученика" });
+  if (!email && !studentId) return res.status(400).json({ error: "Укажите ученика" });
 
-  const student = db.select().from(s.users).where(eq(s.users.email, String(email).trim())).get();
-  if (!student || student.role !== "student") return res.status(404).json({ error: "Ученик с таким email не найден" });
+  let student: typeof s.users.$inferSelect | undefined;
+  if (studentId) {
+    if (!teacherStudentIds(teacherId).includes(studentId)) return res.status(404).json({ error: "Ученик не найден" });
+    student = db.select().from(s.users).where(eq(s.users.id, studentId)).get();
+  } else {
+    student = db.select().from(s.users).where(eq(s.users.email, String(email).trim())).get();
+    if (!student || student.role !== "student") return res.status(404).json({ error: "Ученик с таким email не найден" });
+  }
+  if (!student) return res.status(404).json({ error: "Ученик не найден" });
 
   const already = db.select().from(s.groupMembers).where(and(eq(s.groupMembers.groupId, groupId), eq(s.groupMembers.studentUserId, student.id))).get();
   if (already) return res.status(409).json({ error: "Ученик уже в этой группе" });
 
   db.insert(s.groupMembers).values({ groupId, studentUserId: student.id }).run();
   res.json({ ok: true, studentId: student.id, name: `${student.name} ${student.lastName}`.trim() });
+});
+
+teacherRouter.get("/materials", (req: AuthedRequest, res) => {
+  const teacherId = req.auth!.sub;
+  const groupId = typeof req.query.groupId === "string" ? req.query.groupId : undefined;
+  let list = db.select().from(s.materials).where(eq(s.materials.teacherId, teacherId)).all();
+  if (groupId) list = list.filter((m) => m.groupId === groupId);
+  list.sort((a, b) => b.createdAt.localeCompare(a.createdAt));
+  res.json(list);
+});
+
+teacherRouter.post("/materials", (req: AuthedRequest, res) => {
+  const teacherId = req.auth!.sub;
+  const { groupId, title, type, url, content } = req.body || {};
+  if (!title || !String(title).trim()) return res.status(400).json({ error: "Укажите название" });
+  if (groupId) {
+    const group = db.select().from(s.groups).where(and(eq(s.groups.id, groupId), eq(s.groups.teacherId, teacherId))).get();
+    if (!group) return res.status(404).json({ error: "Группа не найдена" });
+  }
+  const id = randomUUID();
+  const allowedTypes = ["theory", "formula", "example", "video", "pdf", "task", "recording", "other"];
+  db.insert(s.materials)
+    .values({
+      id, teacherId, groupId: groupId || null, title: String(title).trim(),
+      type: allowedTypes.includes(type) ? type : "other",
+      url: url && String(url).trim() ? String(url).trim() : null,
+      content: content && String(content).trim() ? String(content).trim() : null,
+      createdAt: new Date().toISOString(),
+    })
+    .run();
+  res.json(db.select().from(s.materials).where(eq(s.materials.id, id)).get());
+});
+
+teacherRouter.delete("/materials/:id", (req: AuthedRequest, res) => {
+  const teacherId = req.auth!.sub;
+  const materialId = pstr(req.params.id);
+  const material = db.select().from(s.materials).where(and(eq(s.materials.id, materialId), eq(s.materials.teacherId, teacherId))).get();
+  if (!material) return res.status(404).json({ error: "Материал не найден" });
+  db.delete(s.materials).where(eq(s.materials.id, materialId)).run();
+  res.json({ ok: true });
 });
 
 teacherRouter.post("/students", (req: AuthedRequest, res) => {
@@ -242,10 +352,12 @@ teacherRouter.get("/lessons", (req: AuthedRequest, res) => {
   const teacherId = req.auth!.sub;
   const from = typeof req.query.from === "string" ? req.query.from : undefined;
   const to = typeof req.query.to === "string" ? req.query.to : undefined;
+  const groupId = typeof req.query.groupId === "string" ? req.query.groupId : undefined;
   let list = db.select().from(s.lessons).where(eq(s.lessons.teacherId, teacherId)).all();
   if (from) list = list.filter((l) => l.startAt >= from);
   if (to) list = list.filter((l) => l.startAt <= to);
-  list.sort((a, b) => a.startAt.localeCompare(b.startAt));
+  if (groupId) list = list.filter((l) => l.groupId === groupId);
+  list.sort((a, b) => (groupId ? b.startAt.localeCompare(a.startAt) : a.startAt.localeCompare(b.startAt)));
   res.json(list.map(serializeLesson));
 });
 

@@ -1,5 +1,5 @@
 import { Router } from "express";
-import { and, eq } from "drizzle-orm";
+import { and, eq, isNull } from "drizzle-orm";
 import { randomUUID } from "node:crypto";
 import multer from "multer";
 import { mkdirSync } from "node:fs";
@@ -413,6 +413,19 @@ studentRouter.post("/games/:trainerId/record", (req: AuthedRequest, res) => {
   if (existing) db.update(s.gameRecords).set({ best, played, lastScore: score }).where(and(eq(s.gameRecords.studentId, studentId), eq(s.gameRecords.trainerId, trainerId))).run();
   else db.insert(s.gameRecords).values({ studentId, trainerId, best, played, lastScore: score }).run();
   res.json({ best, played, lastScore: score });
+});
+
+studentRouter.post("/join-group", (req: AuthedRequest, res) => {
+  const studentId = req.auth!.sub;
+  const { groupId } = req.body || {};
+  if (!groupId) return res.status(400).json({ error: "Не указана группа" });
+  const group = db.select().from(s.groups).where(eq(s.groups.id, groupId)).get();
+  if (!group) return res.status(404).json({ error: "Группа не найдена" });
+
+  const already = db.select().from(s.groupMembers).where(and(eq(s.groupMembers.groupId, groupId), eq(s.groupMembers.studentUserId, studentId))).get();
+  if (!already) db.insert(s.groupMembers).values({ groupId, studentUserId: studentId }).run();
+  db.update(s.students).set({ teacherId: group.teacherId }).where(and(eq(s.students.userId, studentId), isNull(s.students.teacherId))).run();
+  res.json({ ok: true, groupName: group.name });
 });
 
 studentRouter.post("/settings", (req: AuthedRequest, res) => {
