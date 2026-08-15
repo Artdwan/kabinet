@@ -5,6 +5,7 @@ import { useApiData } from "../../services/useApiData";
 import { api, ApiError } from "../../services/apiClient";
 import { useToast } from "../../services/ToastContext";
 import { Modal } from "../../components/Modal";
+import { SUBJECTS } from "../../data/content";
 
 interface LessonRow {
   id: string;
@@ -29,6 +30,7 @@ interface LessonDetail extends LessonRow {
 interface GroupRow {
   id: string;
   name: string;
+  subjectId: string;
 }
 
 interface RosterRow {
@@ -95,20 +97,38 @@ function minutesOfDay(iso: string): number {
 export function TeacherCalendarPage() {
   const [searchParams, setSearchParams] = useSearchParams();
   const { show } = useToast();
-  const [view, setView] = useState<"week" | "month">("week");
+  const [view, setView] = useState<"day" | "week" | "month">("week");
   const [refDate, setRefDate] = useState(new Date());
+  const [miniMonth, setMiniMonth] = useState(new Date());
   const { data: groups = [] } = useApiData<GroupRow[]>("/teacher/groups");
   const { data: roster = [] } = useApiData<RosterRow[]>("/teacher/roster");
 
-  const rangeStart = view === "month" ? startOfMonthGrid(refDate) : startOfWeek(refDate);
-  const days = view === "month" ? 42 : 7;
+  const [groupFilter, setGroupFilter] = useState("");
+  const [subjectFilter, setSubjectFilter] = useState("");
+
+  const rangeStart = view === "month" ? startOfMonthGrid(refDate) : view === "week" ? startOfWeek(refDate) : new Date(new Date(refDate).setHours(0, 0, 0, 0));
+  const days = view === "month" ? 42 : view === "week" ? 7 : 1;
   const rangeEnd = new Date(rangeStart);
   rangeEnd.setDate(rangeEnd.getDate() + days);
 
-  const { data: lessons = [], reload } = useApiData<LessonRow[]>(
+  const { data: lessonsRaw = [], reload } = useApiData<LessonRow[]>(
     `/teacher/lessons?from=${toDateInput(rangeStart)}&to=${toDateInput(rangeEnd)}`,
     [view, refDate.toDateString()],
   );
+
+  const groupSubject = useMemo(() => {
+    const map = new Map<string, string>();
+    groups.forEach((g) => map.set(g.id, g.subjectId));
+    return map;
+  }, [groups]);
+
+  const lessons = useMemo(() => {
+    return lessonsRaw.filter((l) => {
+      if (groupFilter && l.groupId !== groupFilter) return false;
+      if (subjectFilter && (!l.groupId || groupSubject.get(l.groupId) !== subjectFilter)) return false;
+      return true;
+    });
+  }, [lessonsRaw, groupFilter, subjectFilter, groupSubject]);
 
   const lessonsByDay = useMemo(() => {
     const map = new Map<string, LessonRow[]>();
@@ -121,6 +141,8 @@ export function TeacherCalendarPage() {
     map.forEach((arr) => arr.sort((a, b) => a.startAt.localeCompare(b.startAt)));
     return map;
   }, [lessons]);
+
+  const upcomingCount = lessonsRaw.length;
 
   const [createOpen, setCreateOpen] = useState(false);
   const [createDate, setCreateDate] = useState(toDateInput(new Date()));
@@ -244,165 +266,241 @@ export function TeacherCalendarPage() {
 
   const todayKey = toDateInput(new Date());
 
-  return (
-    <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
-      <div style={{ display: "flex", flexWrap: "wrap", gap: 10, justifyContent: "space-between", alignItems: "center" }}>
-        <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-          <button type="button" className="btn btn-ghost btn-sm" onClick={() => {
-            const d = new Date(refDate);
-            d.setDate(d.getDate() + (view === "month" ? -30 : -7));
-            setRefDate(d);
-          }}>
-            <ChevronLeft size={16} />
-          </button>
-          <span style={{ fontFamily: "var(--font-heading)", fontSize: 18, minWidth: 160, textAlign: "center" }}>
-            {view === "month" ? `${MONTH_NAMES[refDate.getMonth()]} ${refDate.getFullYear()}` : `Неделя с ${toDateInput(rangeStart)}`}
-          </span>
-          <button type="button" className="btn btn-ghost btn-sm" onClick={() => {
-            const d = new Date(refDate);
-            d.setDate(d.getDate() + (view === "month" ? 30 : 7));
-            setRefDate(d);
-          }}>
-            <ChevronRight size={16} />
-          </button>
-          <button type="button" className="btn btn-ghost btn-sm" onClick={() => setRefDate(new Date())}>Сегодня</button>
-        </div>
-        <div style={{ display: "flex", gap: 8 }}>
-          <div className="seg">
-            <button type="button" className="seg-opt" style={view === "week" ? { color: "var(--color-accent)", background: "var(--color-accent-100)" } : undefined} onClick={() => setView("week")}>Неделя</button>
-            <button type="button" className="seg-opt" style={view === "month" ? { color: "var(--color-accent)", background: "var(--color-accent-100)" } : undefined} onClick={() => setView("month")}>Месяц</button>
-          </div>
-          <button type="button" className="btn btn-primary btn-sm" onClick={() => { setCreateDate(toDateInput(new Date())); setCreateOpen(true); }}>
-            Добавить занятие
-          </button>
-        </div>
-      </div>
+  const step = (dir: 1 | -1) => {
+    const d = new Date(refDate);
+    if (view === "month") d.setDate(d.getDate() + dir * 30);
+    else if (view === "week") d.setDate(d.getDate() + dir * 7);
+    else d.setDate(d.getDate() + dir);
+    setRefDate(d);
+    setMiniMonth(d);
+  };
 
-      {view === "month" ? (
-        <div style={{ display: "grid", gridTemplateColumns: "repeat(7, 1fr)", gap: 8 }}>
-          {WEEKDAYS.map((w) => (
-            <div key={w} className="card-meta" style={{ textAlign: "center", fontWeight: 600 }}>{w}</div>
+  const miniGridStart = startOfMonthGrid(miniMonth);
+  const miniDays: Date[] = Array.from({ length: 42 }, (_, i) => {
+    const d = new Date(miniGridStart);
+    d.setDate(d.getDate() + i);
+    return d;
+  });
+
+  const renderHourGrid = (dayList: Date[], columnLabel: (d: Date) => string) => (
+    <div className="card" style={{ padding: 0, overflow: "hidden" }}>
+      <div style={{ display: "grid", gridTemplateColumns: `56px repeat(${dayList.length}, 1fr)`, borderBottom: "1px solid var(--color-line)" }}>
+        <div />
+        {dayList.map((d) => {
+          const key = toDateInput(d);
+          return (
+            <div
+              key={key}
+              style={{
+                padding: "8px 4px", textAlign: "center", cursor: "pointer",
+                background: key === todayKey ? "var(--color-accent-100)" : undefined,
+                borderLeft: "1px solid var(--color-line)",
+              }}
+              onClick={() => openCreateForDay(d)}
+            >
+              <div className="card-meta" style={{ fontWeight: 600 }}>{columnLabel(d)}</div>
+              <div style={{ fontSize: 15, color: key === todayKey ? "var(--color-accent)" : undefined }}>{d.getDate()}</div>
+            </div>
+          );
+        })}
+      </div>
+      <div style={{ display: "grid", gridTemplateColumns: `56px repeat(${dayList.length}, 1fr)`, maxHeight: 640, overflowY: "auto" }}>
+        <div style={{ position: "relative", height: GRID_HEIGHT }}>
+          {HOUR_LABELS.map((h) => (
+            <div key={h} style={{ position: "absolute", top: (h * 60 - DAY_START_MIN) * PX_PER_MIN - 7, right: 6, fontSize: 11, color: "var(--color-text-3)" }}>
+              {String(h).padStart(2, "0")}:00
+            </div>
           ))}
-          {gridDays.map((d) => {
-            const key = toDateInput(d);
-            const dayLessons = lessonsByDay.get(key) || [];
-            const inMonth = d.getMonth() === refDate.getMonth();
-            return (
-              <div
-                key={key}
-                className="card"
-                style={{
-                  minHeight: 90,
-                  padding: 8,
-                  opacity: inMonth ? 1 : 0.45,
-                  borderColor: key === todayKey ? "var(--color-accent)" : undefined,
-                  cursor: "pointer",
-                }}
-                onClick={() => openCreateForDay(d)}
-              >
-                <div style={{ fontSize: 12.5, color: "var(--color-text-3)" }}>{d.getDate()}</div>
-                <div style={{ display: "flex", flexDirection: "column", gap: 4, marginTop: 4 }}>
-                  {dayLessons.map((l) => {
-                    const color = eventColor(l.groupId || l.studentId || l.id);
-                    return (
-                      <button
-                        key={l.id}
-                        type="button"
-                        onClick={(e) => { e.stopPropagation(); setDetailId(l.id); }}
-                        className="tag"
-                        style={{
-                          textAlign: "left", fontSize: 11, whiteSpace: "normal", cursor: "pointer",
-                          background: color.bg, color: color.accent,
-                          opacity: l.status === "cancelled" ? 0.5 : 1,
-                          textDecoration: l.status === "cancelled" ? "line-through" : undefined,
-                        }}
-                      >
-                        {l.startAt.slice(11, 16)} {l.groupName || l.studentName}
-                      </button>
-                    );
-                  })}
-                </div>
-              </div>
-            );
-          })}
         </div>
-      ) : (
-        <div className="card" style={{ padding: 0, overflow: "hidden" }}>
-          <div style={{ display: "grid", gridTemplateColumns: "56px repeat(7, 1fr)", borderBottom: "1px solid var(--color-line)" }}>
-            <div />
-            {gridDays.map((d) => {
+        {dayList.map((d) => {
+          const key = toDateInput(d);
+          const dayLessons = lessonsByDay.get(key) || [];
+          return (
+            <div
+              key={key}
+              style={{
+                position: "relative", height: GRID_HEIGHT, borderLeft: "1px solid var(--color-line)",
+                backgroundImage: `repeating-linear-gradient(to bottom, var(--color-line) 0, var(--color-line) 1px, transparent 1px, transparent ${60 * PX_PER_MIN}px)`,
+                cursor: "pointer",
+              }}
+              onClick={() => openCreateForDay(d)}
+            >
+              {dayLessons.map((l) => {
+                const start = Math.max(minutesOfDay(l.startAt), DAY_START_MIN);
+                const top = (start - DAY_START_MIN) * PX_PER_MIN;
+                const height = Math.max(24, l.durationMinutes * PX_PER_MIN);
+                const color = eventColor(l.groupId || l.studentId || l.id);
+                return (
+                  <button
+                    key={l.id}
+                    type="button"
+                    onClick={(e) => { e.stopPropagation(); setDetailId(l.id); }}
+                    style={{
+                      position: "absolute", left: 3, right: 3, top, height,
+                      background: color.bg, borderLeft: `3px solid ${color.accent}`,
+                      borderRadius: 6, padding: "4px 6px", textAlign: "left", cursor: "pointer",
+                      overflow: "hidden", color: "var(--color-text-1)",
+                      opacity: l.status === "cancelled" ? 0.5 : 1,
+                    }}
+                    title={`${l.startAt.slice(11, 16)} ${l.groupName || l.studentName || ""}`}
+                  >
+                    <div style={{ fontSize: 11, fontWeight: 600, color: color.accent }}>
+                      {l.startAt.slice(11, 16)}{l.seriesId ? " ↻" : ""}
+                    </div>
+                    <div style={{ fontSize: 12, textDecoration: l.status === "cancelled" ? "line-through" : undefined }}>
+                      {l.groupName || l.studentName}
+                    </div>
+                  </button>
+                );
+              })}
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
+
+  return (
+    <div style={{ display: "flex", gap: 20, alignItems: "flex-start" }}>
+      <aside style={{ width: 220, flex: "none", display: "flex", flexDirection: "column", gap: 16 }}>
+        <div className="card" style={{ padding: 12 }}>
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 8 }}>
+            <button type="button" className="btn btn-ghost btn-sm" onClick={() => setMiniMonth(new Date(miniMonth.getFullYear(), miniMonth.getMonth() - 1, 1))}>
+              <ChevronLeft size={14} />
+            </button>
+            <span style={{ fontSize: 13, fontWeight: 600 }}>{MONTH_NAMES[miniMonth.getMonth()]} {miniMonth.getFullYear()}</span>
+            <button type="button" className="btn btn-ghost btn-sm" onClick={() => setMiniMonth(new Date(miniMonth.getFullYear(), miniMonth.getMonth() + 1, 1))}>
+              <ChevronRight size={14} />
+            </button>
+          </div>
+          <div style={{ display: "grid", gridTemplateColumns: "repeat(7, 1fr)", gap: 2, fontSize: 10.5 }}>
+            {WEEKDAYS.map((w) => (
+              <div key={w} style={{ textAlign: "center", color: "var(--color-text-3)" }}>{w[0]}</div>
+            ))}
+            {miniDays.map((d) => {
               const key = toDateInput(d);
+              const inMonth = d.getMonth() === miniMonth.getMonth();
+              const selected = key === toDateInput(refDate);
               return (
-                <div
+                <button
                   key={key}
+                  type="button"
+                  onClick={() => { setRefDate(d); if (view === "month") setMiniMonth(d); }}
                   style={{
-                    padding: "8px 4px", textAlign: "center", cursor: "pointer",
-                    background: key === todayKey ? "var(--color-accent-100)" : undefined,
-                    borderLeft: "1px solid var(--color-line)",
+                    aspectRatio: "1", borderRadius: 6, border: "none", cursor: "pointer",
+                    background: selected ? "var(--color-accent)" : key === todayKey ? "var(--color-accent-100)" : "transparent",
+                    color: selected ? "#1a1410" : inMonth ? "var(--color-text-1)" : "var(--color-text-3)",
+                    fontSize: 11,
                   }}
-                  onClick={() => openCreateForDay(d)}
                 >
-                  <div className="card-meta" style={{ fontWeight: 600 }}>{WEEKDAYS[(d.getDay() + 6) % 7]}</div>
-                  <div style={{ fontSize: 15, color: key === todayKey ? "var(--color-accent)" : undefined }}>{d.getDate()}</div>
-                </div>
+                  {d.getDate()}
+                </button>
               );
             })}
           </div>
-          <div style={{ display: "grid", gridTemplateColumns: "56px repeat(7, 1fr)", maxHeight: 640, overflowY: "auto" }}>
-            <div style={{ position: "relative", height: GRID_HEIGHT }}>
-              {HOUR_LABELS.map((h) => (
-                <div key={h} style={{ position: "absolute", top: (h * 60 - DAY_START_MIN) * PX_PER_MIN - 7, right: 6, fontSize: 11, color: "var(--color-text-3)" }}>
-                  {String(h).padStart(2, "0")}:00
-                </div>
-              ))}
+        </div>
+
+        <div className="card" style={{ padding: 12, display: "flex", flexDirection: "column", gap: 10 }}>
+          <div className="card-title" style={{ fontSize: 13 }}>Фильтры</div>
+          <select className="input" style={{ fontSize: 12.5 }} value={groupFilter} onChange={(e) => setGroupFilter(e.target.value)}>
+            <option value="">Все группы</option>
+            {groups.map((g) => <option key={g.id} value={g.id}>{g.name}</option>)}
+          </select>
+          <select className="input" style={{ fontSize: 12.5 }} value={subjectFilter} onChange={(e) => setSubjectFilter(e.target.value)}>
+            <option value="">Все предметы</option>
+            {SUBJECTS.map((s) => <option key={s.id} value={s.id}>{s.name}</option>)}
+          </select>
+        </div>
+
+        <div className="card-meta" style={{ padding: "0 4px" }}>
+          Занятий в этом периоде: {upcomingCount}
+        </div>
+      </aside>
+
+      <div style={{ flex: 1, minWidth: 0, display: "flex", flexDirection: "column", gap: 16 }}>
+        <div style={{ display: "flex", flexWrap: "wrap", gap: 10, justifyContent: "space-between", alignItems: "center" }}>
+          <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+            <button type="button" className="btn btn-ghost btn-sm" onClick={() => step(-1)}>
+              <ChevronLeft size={16} />
+            </button>
+            <span style={{ fontFamily: "var(--font-heading)", fontSize: 18, minWidth: 160, textAlign: "center" }}>
+              {view === "month"
+                ? `${MONTH_NAMES[refDate.getMonth()]} ${refDate.getFullYear()}`
+                : view === "week"
+                  ? `Неделя с ${toDateInput(rangeStart)}`
+                  : `${refDate.getDate()} ${MONTH_NAMES[refDate.getMonth()].toLowerCase()}`}
+            </span>
+            <button type="button" className="btn btn-ghost btn-sm" onClick={() => step(1)}>
+              <ChevronRight size={16} />
+            </button>
+            <button type="button" className="btn btn-ghost btn-sm" onClick={() => { setRefDate(new Date()); setMiniMonth(new Date()); }}>Сегодня</button>
+          </div>
+          <div style={{ display: "flex", gap: 8 }}>
+            <div className="seg">
+              <button type="button" className="seg-opt" style={view === "day" ? { color: "var(--color-accent)", background: "var(--color-accent-100)" } : undefined} onClick={() => setView("day")}>День</button>
+              <button type="button" className="seg-opt" style={view === "week" ? { color: "var(--color-accent)", background: "var(--color-accent-100)" } : undefined} onClick={() => setView("week")}>Неделя</button>
+              <button type="button" className="seg-opt" style={view === "month" ? { color: "var(--color-accent)", background: "var(--color-accent-100)" } : undefined} onClick={() => setView("month")}>Месяц</button>
             </div>
+            <button type="button" className="btn btn-primary btn-sm" onClick={() => { setCreateDate(toDateInput(new Date())); setCreateOpen(true); }}>
+              Добавить занятие
+            </button>
+          </div>
+        </div>
+
+        {view === "month" ? (
+          <div style={{ display: "grid", gridTemplateColumns: "repeat(7, 1fr)", gap: 8 }}>
+            {WEEKDAYS.map((w) => (
+              <div key={w} className="card-meta" style={{ textAlign: "center", fontWeight: 600 }}>{w}</div>
+            ))}
             {gridDays.map((d) => {
               const key = toDateInput(d);
               const dayLessons = lessonsByDay.get(key) || [];
+              const inMonth = d.getMonth() === refDate.getMonth();
               return (
                 <div
                   key={key}
+                  className="card"
                   style={{
-                    position: "relative", height: GRID_HEIGHT, borderLeft: "1px solid var(--color-line)",
-                    backgroundImage: `repeating-linear-gradient(to bottom, var(--color-line) 0, var(--color-line) 1px, transparent 1px, transparent ${60 * PX_PER_MIN}px)`,
+                    minHeight: 90,
+                    padding: 8,
+                    opacity: inMonth ? 1 : 0.45,
+                    borderColor: key === todayKey ? "var(--color-accent)" : undefined,
                     cursor: "pointer",
                   }}
                   onClick={() => openCreateForDay(d)}
                 >
-                  {dayLessons.map((l) => {
-                    const start = Math.max(minutesOfDay(l.startAt), DAY_START_MIN);
-                    const top = (start - DAY_START_MIN) * PX_PER_MIN;
-                    const height = Math.max(24, l.durationMinutes * PX_PER_MIN);
-                    const color = eventColor(l.groupId || l.studentId || l.id);
-                    return (
-                      <button
-                        key={l.id}
-                        type="button"
-                        onClick={(e) => { e.stopPropagation(); setDetailId(l.id); }}
-                        style={{
-                          position: "absolute", left: 3, right: 3, top, height,
-                          background: color.bg, borderLeft: `3px solid ${color.accent}`,
-                          borderRadius: 6, padding: "4px 6px", textAlign: "left", cursor: "pointer",
-                          overflow: "hidden", color: "var(--color-text-1)",
-                          opacity: l.status === "cancelled" ? 0.5 : 1,
-                        }}
-                        title={`${l.startAt.slice(11, 16)}–${l.startAt.slice(11, 16)} ${l.groupName || l.studentName || ""}`}
-                      >
-                        <div style={{ fontSize: 11, fontWeight: 600, color: color.accent }}>
-                          {l.startAt.slice(11, 16)}{l.seriesId ? " ↻" : ""}
-                        </div>
-                        <div style={{ fontSize: 12, textDecoration: l.status === "cancelled" ? "line-through" : undefined }}>
-                          {l.groupName || l.studentName}
-                        </div>
-                      </button>
-                    );
-                  })}
+                  <div style={{ fontSize: 12.5, color: "var(--color-text-3)" }}>{d.getDate()}</div>
+                  <div style={{ display: "flex", flexDirection: "column", gap: 4, marginTop: 4 }}>
+                    {dayLessons.map((l) => {
+                      const color = eventColor(l.groupId || l.studentId || l.id);
+                      return (
+                        <button
+                          key={l.id}
+                          type="button"
+                          onClick={(e) => { e.stopPropagation(); setDetailId(l.id); }}
+                          className="tag"
+                          style={{
+                            textAlign: "left", fontSize: 11, whiteSpace: "normal", cursor: "pointer",
+                            background: color.bg, color: color.accent,
+                            opacity: l.status === "cancelled" ? 0.5 : 1,
+                            textDecoration: l.status === "cancelled" ? "line-through" : undefined,
+                          }}
+                        >
+                          {l.startAt.slice(11, 16)} {l.groupName || l.studentName}
+                        </button>
+                      );
+                    })}
+                  </div>
                 </div>
               );
             })}
           </div>
-        </div>
-      )}
+        ) : view === "week" ? (
+          renderHourGrid(gridDays, (d) => WEEKDAYS[(d.getDay() + 6) % 7])
+        ) : (
+          renderHourGrid(gridDays, () => "Сегодня")
+        )}
+      </div>
 
       {createOpen && (
         <Modal
