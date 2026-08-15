@@ -85,9 +85,9 @@ function eventColor(key: string): { bg: string; accent: string } {
 
 const DAY_START_MIN = 7 * 60;
 const DAY_END_MIN = 22 * 60;
-const PX_PER_MIN = 1.6;
-const GRID_HEIGHT = (DAY_END_MIN - DAY_START_MIN) * PX_PER_MIN;
-const HOUR_LABELS = Array.from({ length: (DAY_END_MIN - DAY_START_MIN) / 60 + 1 }, (_, i) => DAY_START_MIN / 60 + i);
+const DAY_RANGE_MIN = DAY_END_MIN - DAY_START_MIN;
+const HOUR_LABELS = Array.from({ length: DAY_RANGE_MIN / 60 + 1 }, (_, i) => DAY_START_MIN / 60 + i);
+const pctOfDay = (min: number) => ((min - DAY_START_MIN) / DAY_RANGE_MIN) * 100;
 
 function minutesOfDay(iso: string): number {
   const [, time] = iso.split("T");
@@ -293,8 +293,8 @@ export function TeacherCalendarPage() {
   });
 
   const renderHourGrid = (dayList: Date[], columnLabel: (d: Date) => string) => (
-    <div className="card" style={{ padding: 0, overflow: "hidden" }}>
-      <div style={{ display: "grid", gridTemplateColumns: `56px repeat(${dayList.length}, 1fr)`, borderBottom: "1px solid var(--color-line)" }}>
+    <div className="card" style={{ padding: 0, overflow: "hidden", flex: 1, minHeight: 0, display: "flex", flexDirection: "column" }}>
+      <div style={{ display: "grid", gridTemplateColumns: `56px repeat(${dayList.length}, 1fr)`, borderBottom: "1px solid var(--color-line)", flex: "none" }}>
         <div />
         {dayList.map((d) => {
           const key = toDateInput(d);
@@ -314,10 +314,10 @@ export function TeacherCalendarPage() {
           );
         })}
       </div>
-      <div style={{ display: "grid", gridTemplateColumns: `56px repeat(${dayList.length}, 1fr)` }}>
-        <div style={{ position: "relative", height: GRID_HEIGHT }}>
+      <div style={{ display: "grid", gridTemplateColumns: `56px repeat(${dayList.length}, 1fr)`, flex: 1, minHeight: 0 }}>
+        <div style={{ position: "relative", height: "100%" }}>
           {HOUR_LABELS.map((h) => (
-            <div key={h} style={{ position: "absolute", top: (h * 60 - DAY_START_MIN) * PX_PER_MIN - 8, right: 8, fontSize: 12.5, color: "var(--color-text-3)" }}>
+            <div key={h} style={{ position: "absolute", top: `${pctOfDay(h * 60)}%`, transform: "translateY(-8px)", right: 8, fontSize: 12.5, color: "var(--color-text-3)" }}>
               {String(h).padStart(2, "0")}:00
             </div>
           ))}
@@ -329,16 +329,16 @@ export function TeacherCalendarPage() {
             <div
               key={key}
               style={{
-                position: "relative", height: GRID_HEIGHT, borderLeft: "1px solid var(--color-line)",
-                backgroundImage: `repeating-linear-gradient(to bottom, var(--color-line) 0, var(--color-line) 1px, transparent 1px, transparent ${60 * PX_PER_MIN}px)`,
+                position: "relative", height: "100%", borderLeft: "1px solid var(--color-line)",
+                backgroundImage: `repeating-linear-gradient(to bottom, var(--color-line) 0, var(--color-line) 1px, transparent 1px, transparent ${pctOfDay(DAY_START_MIN + 60)}%)`,
                 cursor: "pointer",
               }}
               onClick={() => openCreateForDay(d)}
             >
               {dayLessons.map((l) => {
                 const start = Math.max(minutesOfDay(l.startAt), DAY_START_MIN);
-                const top = (start - DAY_START_MIN) * PX_PER_MIN;
-                const height = Math.max(40, l.durationMinutes * PX_PER_MIN);
+                const top = pctOfDay(start);
+                const height = (l.durationMinutes / DAY_RANGE_MIN) * 100;
                 const color = eventColor(l.groupId || l.studentId || l.id);
                 return (
                   <button
@@ -346,7 +346,7 @@ export function TeacherCalendarPage() {
                     type="button"
                     onClick={(e) => { e.stopPropagation(); setDetailId(l.id); }}
                     style={{
-                      position: "absolute", left: 4, right: 4, top, height,
+                      position: "absolute", left: 4, right: 4, top: `${top}%`, height: `${height}%`, minHeight: 30,
                       background: color.bg, borderLeft: `4px solid ${color.accent}`,
                       borderRadius: 8, padding: "8px 10px", textAlign: "left", cursor: "pointer",
                       overflow: "hidden", color: "var(--color-text-1)",
@@ -371,9 +371,11 @@ export function TeacherCalendarPage() {
     </div>
   );
 
+  const fitToViewport = view === "day" || view === "week";
+
   return (
-    <div style={{ display: "flex", gap: 20, alignItems: "flex-start" }}>
-      <aside style={{ width: 220, flex: "none", display: "flex", flexDirection: "column", gap: 16 }}>
+    <div style={{ display: "flex", gap: 20, alignItems: "stretch", height: fitToViewport ? "calc(100vh - 156px)" : undefined, minHeight: fitToViewport ? 480 : undefined }}>
+      <aside style={{ width: 220, flex: "none", display: "flex", flexDirection: "column", gap: 16, alignSelf: "flex-start" }}>
         <div className="card" style={{ padding: 12 }}>
           <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 8 }}>
             <button type="button" className="btn btn-ghost btn-sm" onClick={() => setMiniMonth(new Date(miniMonth.getFullYear(), miniMonth.getMonth() - 1, 1))}>
@@ -432,8 +434,8 @@ export function TeacherCalendarPage() {
         </div>
       </aside>
 
-      <div style={{ flex: 1, minWidth: 0, display: "flex", flexDirection: "column", gap: 16 }}>
-        <div style={{ display: "flex", flexWrap: "wrap", gap: 10, justifyContent: "space-between", alignItems: "center" }}>
+      <div style={{ flex: 1, minWidth: 0, minHeight: 0, display: "flex", flexDirection: "column", gap: 16 }}>
+        <div style={{ display: "flex", flexWrap: "wrap", gap: 10, justifyContent: "space-between", alignItems: "center", flex: "none" }}>
           <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
             <button type="button" className="btn btn-ghost btn-sm" onClick={() => step(-1)}>
               <ChevronLeft size={16} />
