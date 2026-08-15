@@ -65,10 +65,37 @@ const STATUS_LABEL: Record<string, { label: string; cls: string }> = {
   cancelled: { label: "Отменено", cls: "tag-bad" },
 };
 
+const EVENT_COLORS = [
+  { bg: "#3a2c14", accent: "#f5a623" },
+  { bg: "#16302c", accent: "#35c5a2" },
+  { bg: "#182640", accent: "#5b9dff" },
+  { bg: "#331a33", accent: "#c77dff" },
+  { bg: "#331414", accent: "#ff6b6b" },
+  { bg: "#123024", accent: "#4ade80" },
+];
+
+function eventColor(key: string): { bg: string; accent: string } {
+  let hash = 0;
+  for (let i = 0; i < key.length; i++) hash = (hash * 31 + key.charCodeAt(i)) >>> 0;
+  return EVENT_COLORS[hash % EVENT_COLORS.length];
+}
+
+const DAY_START_MIN = 7 * 60;
+const DAY_END_MIN = 22 * 60;
+const PX_PER_MIN = 1;
+const GRID_HEIGHT = (DAY_END_MIN - DAY_START_MIN) * PX_PER_MIN;
+const HOUR_LABELS = Array.from({ length: (DAY_END_MIN - DAY_START_MIN) / 60 + 1 }, (_, i) => DAY_START_MIN / 60 + i);
+
+function minutesOfDay(iso: string): number {
+  const [, time] = iso.split("T");
+  const [h, m] = (time || "00:00").split(":").map(Number);
+  return h * 60 + m;
+}
+
 export function TeacherCalendarPage() {
   const [searchParams, setSearchParams] = useSearchParams();
   const { show } = useToast();
-  const [view, setView] = useState<"week" | "month">("month");
+  const [view, setView] = useState<"week" | "month">("week");
   const [refDate, setRefDate] = useState(new Date());
   const { data: groups = [] } = useApiData<GroupRow[]>("/teacher/groups");
   const { data: roster = [] } = useApiData<RosterRow[]>("/teacher/roster");
@@ -251,45 +278,131 @@ export function TeacherCalendarPage() {
         </div>
       </div>
 
-      <div style={{ display: "grid", gridTemplateColumns: "repeat(7, 1fr)", gap: 8 }}>
-        {WEEKDAYS.map((w) => (
-          <div key={w} className="card-meta" style={{ textAlign: "center", fontWeight: 600 }}>{w}</div>
-        ))}
-        {gridDays.map((d) => {
-          const key = toDateInput(d);
-          const dayLessons = lessonsByDay.get(key) || [];
-          const inMonth = view === "week" || d.getMonth() === refDate.getMonth();
-          return (
-            <div
-              key={key}
-              className="card"
-              style={{
-                minHeight: view === "month" ? 90 : 140,
-                padding: 8,
-                opacity: inMonth ? 1 : 0.45,
-                borderColor: key === todayKey ? "var(--color-accent)" : undefined,
-                cursor: "pointer",
-              }}
-              onClick={() => openCreateForDay(d)}
-            >
-              <div style={{ fontSize: 12.5, color: "var(--color-text-3)" }}>{d.getDate()}</div>
-              <div style={{ display: "flex", flexDirection: "column", gap: 4, marginTop: 4 }}>
-                {dayLessons.map((l) => (
-                  <button
-                    key={l.id}
-                    type="button"
-                    onClick={(e) => { e.stopPropagation(); setDetailId(l.id); }}
-                    className={`tag ${l.status === "cancelled" ? "tag-bad" : l.status === "done" ? "tag-ok" : "tag-accent"}`}
-                    style={{ textAlign: "left", fontSize: 11, whiteSpace: "normal", cursor: "pointer" }}
-                  >
-                    {l.startAt.slice(11, 16)} {l.groupName || l.studentName}
-                  </button>
-                ))}
+      {view === "month" ? (
+        <div style={{ display: "grid", gridTemplateColumns: "repeat(7, 1fr)", gap: 8 }}>
+          {WEEKDAYS.map((w) => (
+            <div key={w} className="card-meta" style={{ textAlign: "center", fontWeight: 600 }}>{w}</div>
+          ))}
+          {gridDays.map((d) => {
+            const key = toDateInput(d);
+            const dayLessons = lessonsByDay.get(key) || [];
+            const inMonth = d.getMonth() === refDate.getMonth();
+            return (
+              <div
+                key={key}
+                className="card"
+                style={{
+                  minHeight: 90,
+                  padding: 8,
+                  opacity: inMonth ? 1 : 0.45,
+                  borderColor: key === todayKey ? "var(--color-accent)" : undefined,
+                  cursor: "pointer",
+                }}
+                onClick={() => openCreateForDay(d)}
+              >
+                <div style={{ fontSize: 12.5, color: "var(--color-text-3)" }}>{d.getDate()}</div>
+                <div style={{ display: "flex", flexDirection: "column", gap: 4, marginTop: 4 }}>
+                  {dayLessons.map((l) => {
+                    const color = eventColor(l.groupId || l.studentId || l.id);
+                    return (
+                      <button
+                        key={l.id}
+                        type="button"
+                        onClick={(e) => { e.stopPropagation(); setDetailId(l.id); }}
+                        className="tag"
+                        style={{
+                          textAlign: "left", fontSize: 11, whiteSpace: "normal", cursor: "pointer",
+                          background: color.bg, color: color.accent,
+                          opacity: l.status === "cancelled" ? 0.5 : 1,
+                          textDecoration: l.status === "cancelled" ? "line-through" : undefined,
+                        }}
+                      >
+                        {l.startAt.slice(11, 16)} {l.groupName || l.studentName}
+                      </button>
+                    );
+                  })}
+                </div>
               </div>
+            );
+          })}
+        </div>
+      ) : (
+        <div className="card" style={{ padding: 0, overflow: "hidden" }}>
+          <div style={{ display: "grid", gridTemplateColumns: "56px repeat(7, 1fr)", borderBottom: "1px solid var(--color-line)" }}>
+            <div />
+            {gridDays.map((d) => {
+              const key = toDateInput(d);
+              return (
+                <div
+                  key={key}
+                  style={{
+                    padding: "8px 4px", textAlign: "center", cursor: "pointer",
+                    background: key === todayKey ? "var(--color-accent-100)" : undefined,
+                    borderLeft: "1px solid var(--color-line)",
+                  }}
+                  onClick={() => openCreateForDay(d)}
+                >
+                  <div className="card-meta" style={{ fontWeight: 600 }}>{WEEKDAYS[(d.getDay() + 6) % 7]}</div>
+                  <div style={{ fontSize: 15, color: key === todayKey ? "var(--color-accent)" : undefined }}>{d.getDate()}</div>
+                </div>
+              );
+            })}
+          </div>
+          <div style={{ display: "grid", gridTemplateColumns: "56px repeat(7, 1fr)", maxHeight: 640, overflowY: "auto" }}>
+            <div style={{ position: "relative", height: GRID_HEIGHT }}>
+              {HOUR_LABELS.map((h) => (
+                <div key={h} style={{ position: "absolute", top: (h * 60 - DAY_START_MIN) * PX_PER_MIN - 7, right: 6, fontSize: 11, color: "var(--color-text-3)" }}>
+                  {String(h).padStart(2, "0")}:00
+                </div>
+              ))}
             </div>
-          );
-        })}
-      </div>
+            {gridDays.map((d) => {
+              const key = toDateInput(d);
+              const dayLessons = lessonsByDay.get(key) || [];
+              return (
+                <div
+                  key={key}
+                  style={{
+                    position: "relative", height: GRID_HEIGHT, borderLeft: "1px solid var(--color-line)",
+                    backgroundImage: `repeating-linear-gradient(to bottom, var(--color-line) 0, var(--color-line) 1px, transparent 1px, transparent ${60 * PX_PER_MIN}px)`,
+                    cursor: "pointer",
+                  }}
+                  onClick={() => openCreateForDay(d)}
+                >
+                  {dayLessons.map((l) => {
+                    const start = Math.max(minutesOfDay(l.startAt), DAY_START_MIN);
+                    const top = (start - DAY_START_MIN) * PX_PER_MIN;
+                    const height = Math.max(24, l.durationMinutes * PX_PER_MIN);
+                    const color = eventColor(l.groupId || l.studentId || l.id);
+                    return (
+                      <button
+                        key={l.id}
+                        type="button"
+                        onClick={(e) => { e.stopPropagation(); setDetailId(l.id); }}
+                        style={{
+                          position: "absolute", left: 3, right: 3, top, height,
+                          background: color.bg, borderLeft: `3px solid ${color.accent}`,
+                          borderRadius: 6, padding: "4px 6px", textAlign: "left", cursor: "pointer",
+                          overflow: "hidden", color: "var(--color-text-1)",
+                          opacity: l.status === "cancelled" ? 0.5 : 1,
+                        }}
+                        title={`${l.startAt.slice(11, 16)}–${l.startAt.slice(11, 16)} ${l.groupName || l.studentName || ""}`}
+                      >
+                        <div style={{ fontSize: 11, fontWeight: 600, color: color.accent }}>
+                          {l.startAt.slice(11, 16)}{l.seriesId ? " ↻" : ""}
+                        </div>
+                        <div style={{ fontSize: 12, textDecoration: l.status === "cancelled" ? "line-through" : undefined }}>
+                          {l.groupName || l.studentName}
+                        </div>
+                      </button>
+                    );
+                  })}
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      )}
 
       {createOpen && (
         <Modal
