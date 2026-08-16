@@ -177,12 +177,25 @@ teacherRouter.get("/groups/:id", (req: AuthedRequest, res) => {
   res.json({
     id: group.id, name: group.name, subjectId: group.subjectId, grade: group.grade, description: group.description,
     direction: group.direction, goal: group.goal, scheduleNote: group.scheduleNote,
-    scheduleDays: group.scheduleDays, scheduleTime: group.scheduleTime, startDate: group.startDate,
+    scheduleSlots: group.scheduleSlots, startDate: group.startDate,
     endDate: group.endDate, active: group.active,
     color: group.color, maxStudents: group.maxStudents, hwDefaults: group.hwDefaults,
     students, avgScore, weakTopics, homeworkStats, upcomingLessons, recentLessons,
   });
 });
+
+interface ScheduleSlot {
+  day: number;
+  time: string;
+}
+
+function normalizeScheduleSlots(value: any): ScheduleSlot[] | null {
+  if (!Array.isArray(value) || !value.length) return null;
+  const slots = value
+    .filter((s) => s && typeof s.day === "number" && typeof s.time === "string" && /^\d{2}:\d{2}$/.test(s.time))
+    .map((s) => ({ day: Number(s.day), time: s.time }));
+  return slots.length ? slots : null;
+}
 
 function groupFieldsFromBody(body: any) {
   const patch: Partial<typeof s.groups.$inferInsert> = {};
@@ -193,8 +206,7 @@ function groupFieldsFromBody(body: any) {
   if (body.direction !== undefined) patch.direction = body.direction || null;
   if (body.goal !== undefined) patch.goal = body.goal && String(body.goal).trim() ? String(body.goal).trim() : null;
   if (body.scheduleNote !== undefined) patch.scheduleNote = body.scheduleNote && String(body.scheduleNote).trim() ? String(body.scheduleNote).trim() : null;
-  if (body.scheduleDays !== undefined) patch.scheduleDays = Array.isArray(body.scheduleDays) && body.scheduleDays.length ? body.scheduleDays.map(Number) : null;
-  if (body.scheduleTime !== undefined) patch.scheduleTime = body.scheduleTime || null;
+  if (body.scheduleSlots !== undefined) patch.scheduleSlots = normalizeScheduleSlots(body.scheduleSlots);
   if (body.startDate !== undefined) patch.startDate = body.startDate || null;
   if (body.endDate !== undefined) patch.endDate = body.endDate || null;
   if (body.active !== undefined) patch.active = Boolean(body.active);
@@ -255,11 +267,13 @@ teacherRouter.post("/groups/:id/generate-lessons", (req: AuthedRequest, res) => 
   const groupId = pstr(req.params.id);
   const group = db.select().from(s.groups).where(and(eq(s.groups.id, groupId), eq(s.groups.teacherId, teacherId))).get();
   if (!group) return res.status(404).json({ error: "Группа не найдена" });
-  const days = (group.scheduleDays as number[] | null) || [];
-  if (!days.length) return res.status(400).json({ error: "Сначала укажите дни расписания в настройках группы" });
+  const slots = (group.scheduleSlots as ScheduleSlot[] | null) || [];
+  if (!slots.length) return res.status(400).json({ error: "Сначала укажите дни и время расписания в настройках группы" });
   if (!group.active) return res.status(400).json({ error: "Группа неактивна" });
 
-  const time = group.scheduleTime || "17:00";
+  const slotsByDay = new Map<number, string>();
+  slots.forEach((slot) => slotsByDay.set(slot.day, slot.time));
+
   const today = new Date();
   today.setHours(0, 0, 0, 0);
   const start = group.startDate ? new Date(`${group.startDate}T00:00`) : today;
@@ -276,7 +290,8 @@ teacherRouter.post("/groups/:id/generate-lessons", (req: AuthedRequest, res) => 
   const cursor = new Date(rangeStart);
   while (cursor <= until) {
     const weekday = (cursor.getDay() + 6) % 7; // 0=Monday
-    if (days.includes(weekday)) {
+    const time = slotsByDay.get(weekday);
+    if (time) {
       const startAt = `${cursor.toISOString().slice(0, 10)}T${time}`;
       if (!existing.has(startAt)) {
         const id = randomUUID();

@@ -39,8 +39,7 @@ interface GroupRow {
   description: string | null;
   direction: "ct" | "school" | "improvement" | null;
   goal: string | null;
-  scheduleDays: number[] | null;
-  scheduleTime: string | null;
+  scheduleSlots: ScheduleSlot[] | null;
   startDate: string | null;
   endDate: string | null;
   active: boolean;
@@ -69,11 +68,17 @@ const DIRECTION_LABEL: Record<string, string> = { ct: "Подготовка к �
 
 const WEEKDAYS_SHORT = ["Пн", "Вт", "Ср", "Чт", "Пт", "Сб", "Вс"];
 
-function scheduleSummary(days: number[] | null, time: string | null): string | null {
-  if (!days || !days.length) return null;
-  const sorted = [...days].sort((a, b) => a - b);
-  const label = sorted.map((d) => WEEKDAYS_SHORT[d]).join(", ");
-  return time ? `${label} · ${time}` : label;
+interface ScheduleSlot {
+  day: number;
+  time: string;
+}
+
+function scheduleSummary(slots: ScheduleSlot[] | null): string | null {
+  if (!slots || !slots.length) return null;
+  return [...slots]
+    .sort((a, b) => a.day - b.day)
+    .map((s) => `${WEEKDAYS_SHORT[s.day]} ${s.time}`)
+    .join(", ");
 }
 
 interface GroupFormState {
@@ -83,8 +88,7 @@ interface GroupFormState {
   description: string;
   direction: string;
   goal: string;
-  scheduleDays: number[];
-  scheduleTime: string;
+  scheduleSlots: ScheduleSlot[];
   startDate: string;
   endDate: string;
   active: boolean;
@@ -94,7 +98,7 @@ interface GroupFormState {
 }
 
 function emptyForm(): GroupFormState {
-  return { name: "", subjectId: SUBJECTS[0]?.id ?? "", grade: "", description: "", direction: "", goal: "", scheduleDays: [], scheduleTime: "17:00", startDate: "", endDate: "", active: true, color: "#e1ad66", maxStudents: "", hw: { ...DEFAULT_HW } };
+  return { name: "", subjectId: SUBJECTS[0]?.id ?? "", grade: "", description: "", direction: "", goal: "", scheduleSlots: [], startDate: "", endDate: "", active: true, color: "#e1ad66", maxStudents: "", hw: { ...DEFAULT_HW } };
 }
 
 function formFromGroup(g: GroupRow): GroupFormState {
@@ -107,7 +111,7 @@ function formFromGroup(g: GroupRow): GroupFormState {
   }
   return {
     name: g.name, subjectId: g.subjectId, grade: g.grade ? String(g.grade) : "", description: g.description || "",
-    direction: g.direction || "", goal: g.goal || "", scheduleDays: g.scheduleDays || [], scheduleTime: g.scheduleTime || "17:00", startDate: g.startDate || "",
+    direction: g.direction || "", goal: g.goal || "", scheduleSlots: g.scheduleSlots || [], startDate: g.startDate || "",
     endDate: g.endDate || "", active: g.active,
     color: g.color || "#e1ad66", maxStudents: g.maxStudents ? String(g.maxStudents) : "", hw,
   };
@@ -230,8 +234,7 @@ export function TeacherGroupsPage() {
         description: form.description.trim() || null,
         direction: form.direction || null,
         goal: form.goal.trim() || null,
-        scheduleDays: form.scheduleDays,
-        scheduleTime: form.scheduleDays.length ? form.scheduleTime : null,
+        scheduleSlots: form.scheduleSlots,
         startDate: form.startDate || null,
         endDate: form.endDate || null,
         active: form.active,
@@ -262,7 +265,17 @@ export function TeacherGroupsPage() {
   };
 
   const toggleScheduleDay = (day: number) => {
-    setForm((f) => ({ ...f, scheduleDays: f.scheduleDays.includes(day) ? f.scheduleDays.filter((d) => d !== day) : [...f.scheduleDays, day].sort((a, b) => a - b) }));
+    setForm((f) => {
+      const has = f.scheduleSlots.some((s) => s.day === day);
+      const scheduleSlots = has
+        ? f.scheduleSlots.filter((s) => s.day !== day)
+        : [...f.scheduleSlots, { day, time: "17:00" }].sort((a, b) => a.day - b.day);
+      return { ...f, scheduleSlots };
+    });
+  };
+
+  const setScheduleTime = (day: number, time: string) => {
+    setForm((f) => ({ ...f, scheduleSlots: f.scheduleSlots.map((s) => (s.day === day ? { ...s, time } : s)) }));
   };
 
   const deleteGroup = async () => {
@@ -478,7 +491,7 @@ export function TeacherGroupsPage() {
                         {g.name}{g.grade ? ` · ${g.grade} класс` : ""}
                       </Link>
                       <div className="card-meta">{subjectName(g.subjectId)} · {g.studentIds.length} человек{g.direction ? ` · ${DIRECTION_LABEL[g.direction]}` : ""}</div>
-                      {scheduleSummary(g.scheduleDays, g.scheduleTime) && <div className="card-meta">Расписание: {scheduleSummary(g.scheduleDays, g.scheduleTime)}</div>}
+                      {scheduleSummary(g.scheduleSlots) && <div className="card-meta">Расписание: {scheduleSummary(g.scheduleSlots)}</div>}
                     </div>
                   </div>
 
@@ -612,7 +625,7 @@ export function TeacherGroupsPage() {
                     key={day}
                     type="button"
                     className="btn btn-sm"
-                    style={form.scheduleDays.includes(day)
+                    style={form.scheduleSlots.some((s) => s.day === day)
                       ? { color: "var(--color-accent)", background: "var(--color-accent-100)", border: "1px solid var(--color-accent)" }
                       : { background: "var(--color-surface-2)", border: "1px solid var(--color-line)" }}
                     onClick={() => toggleScheduleDay(day)}
@@ -620,15 +633,23 @@ export function TeacherGroupsPage() {
                     {label}
                   </button>
                 ))}
-                <input
-                  className="input"
-                  type="time"
-                  style={{ maxWidth: 110 }}
-                  value={form.scheduleTime}
-                  onChange={(e) => setForm((f) => ({ ...f, scheduleTime: e.target.value }))}
-                  disabled={form.scheduleDays.length === 0}
-                />
               </div>
+              {form.scheduleSlots.length > 0 && (
+                <div style={{ display: "flex", flexDirection: "column", gap: 6, marginTop: 8 }}>
+                  {[...form.scheduleSlots].sort((a, b) => a.day - b.day).map((slot) => (
+                    <div key={slot.day} style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                      <span style={{ fontSize: 13.5, minWidth: 32 }}>{WEEKDAYS_SHORT[slot.day]}</span>
+                      <input
+                        className="input"
+                        type="time"
+                        style={{ maxWidth: 110 }}
+                        value={slot.time}
+                        onChange={(e) => setScheduleTime(slot.day, e.target.value)}
+                      />
+                    </div>
+                  ))}
+                </div>
+              )}
             </div>
             <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
               <div className="field" style={{ flex: 1, minWidth: 160 }}>
@@ -650,10 +671,10 @@ export function TeacherGroupsPage() {
             </label>
             {editingId && (
               <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
-                <button type="button" className="btn btn-secondary btn-sm" disabled={form.scheduleDays.length === 0 || saving} onClick={generateLessons}>
+                <button type="button" className="btn btn-secondary btn-sm" disabled={form.scheduleSlots.length === 0 || saving} onClick={generateLessons}>
                   Внести в календарь
                 </button>
-                {form.scheduleDays.length === 0 && <span className="card-meta">Сначала укажите дни расписания выше</span>}
+                {form.scheduleSlots.length === 0 && <span className="card-meta">Сначала укажите дни расписания выше</span>}
               </div>
             )}
             <div className="field">

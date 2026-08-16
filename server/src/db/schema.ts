@@ -53,8 +53,9 @@ export const groups = sqliteTable("groups", {
   direction: text("direction", { enum: ["ct", "school", "improvement"] }),
   goal: text("goal"),
   scheduleNote: text("schedule_note"),
-  scheduleDays: text("schedule_days", { mode: "json" }), // number[], 0=Monday..6=Sunday
-  scheduleTime: text("schedule_time"), // "17:00"
+  scheduleDays: text("schedule_days", { mode: "json" }), // deprecated, superseded by scheduleSlots
+  scheduleTime: text("schedule_time"), // deprecated, superseded by scheduleSlots
+  scheduleSlots: text("schedule_slots", { mode: "json" }), // { day: number (0=Monday..6=Sunday), time: string ("HH:MM") }[]
   startDate: text("start_date"),
   endDate: text("end_date"),
   active: integer("active", { mode: "boolean" }).notNull().default(true),

@@ -1,0 +1,1 @@
+ALTER TABLE `groups` ADD `schedule_slots` text;
