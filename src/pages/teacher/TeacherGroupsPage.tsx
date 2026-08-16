@@ -1,6 +1,6 @@
 import { useMemo, useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
-import { Search } from "lucide-react";
+import { LayoutGrid, List, Search } from "lucide-react";
 import { useApiData } from "../../services/useApiData";
 import { api, ApiError } from "../../services/apiClient";
 import { useToast } from "../../services/ToastContext";
@@ -139,6 +139,7 @@ export function TeacherGroupsPage() {
   const { show } = useToast();
 
   const [section, setSection] = useState<"groups" | "individual">("groups");
+  const [view, setView] = useState<"cards" | "table">("cards");
   const [search, setSearch] = useState("");
   const [subjectFilter, setSubjectFilter] = useState("");
   const [gradeFilter, setGradeFilter] = useState("");
@@ -526,11 +527,21 @@ export function TeacherGroupsPage() {
           <h1 style={{ margin: 0, fontSize: 22 }}>Занятия</h1>
           <p className="card-meta" style={{ margin: "2px 0 0" }}>Групп: {groups.length} · учеников в группах: {totalStudents} · индивидуально: {individual.length}</p>
         </div>
-        {section === "groups" ? (
-          <button type="button" className="btn btn-primary btn-sm" onClick={openCreate}>Создать группу</button>
-        ) : (
-          <button type="button" className="btn btn-primary btn-sm" onClick={openCreateLesson}>Добавить занятие</button>
-        )}
+        <div style={{ display: "flex", gap: 8 }}>
+          {section === "groups" ? (
+            <button type="button" className="btn btn-primary btn-sm" onClick={openCreate}>Создать группу</button>
+          ) : (
+            <button type="button" className="btn btn-primary btn-sm" onClick={openCreateLesson}>Добавить занятие</button>
+          )}
+          <div className="seg">
+            <button type="button" className="seg-opt" style={view === "table" ? { color: "var(--color-accent)", background: "var(--color-accent-100)" } : undefined} onClick={() => setView("table")} title="Таблица">
+              <List size={16} />
+            </button>
+            <button type="button" className="seg-opt" style={view === "cards" ? { color: "var(--color-accent)", background: "var(--color-accent-100)" } : undefined} onClick={() => setView("cards")} title="Карточки">
+              <LayoutGrid size={16} />
+            </button>
+          </div>
+        </div>
       </div>
 
       <div className="seg" style={{ alignSelf: "flex-start" }}>
@@ -575,6 +586,40 @@ export function TeacherGroupsPage() {
 
           {rows.length === 0 ? (
             <div className="card-meta">{groups.length === 0 ? "Групп пока нет — создайте первую." : "Ничего не найдено по этим фильтрам."}</div>
+          ) : view === "table" ? (
+            <table className="table">
+              <thead>
+                <tr>
+                  <th style={{ width: 32 }}><input type="checkbox" checked={selectedGroupIds.length === rows.length} onChange={() => setSelectedGroupIds(selectedGroupIds.length === rows.length ? [] : rows.map((g) => g.id))} /></th>
+                  <th>Группа</th>
+                  <th>Предмет</th>
+                  <th>Учеников</th>
+                  <th>Расписание</th>
+                  <th>Средний балл</th>
+                  <th>Статус</th>
+                </tr>
+              </thead>
+              <tbody>
+                {rows.map((g) => (
+                  <tr key={g.id} onClick={() => navigate(`/teacher/groups/${g.id}`)} style={{ cursor: "pointer" }}>
+                    <td onClick={(e) => e.stopPropagation()}><input type="checkbox" checked={selectedGroupIds.includes(g.id)} onChange={() => toggleGroupSelected(g.id)} /></td>
+                    <td>{g.name}{g.grade ? ` · ${g.grade} класс` : ""}{g.direction ? ` · ${DIRECTION_LABEL[g.direction]}` : ""}</td>
+                    <td>{subjectName(g.subjectId)}</td>
+                    <td>{g.studentIds.length}</td>
+                    <td>{scheduleSummary(g.scheduleSlots) || "—"}</td>
+                    <td>{g.avgScore || "—"}</td>
+                    <td>
+                      <span style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
+                        {g.attentionCount > 0 && <span className="tag tag-bad">{g.attentionCount} отстают</span>}
+                        {!g.active && <span className="tag tag-neutral">Неактивна</span>}
+                        {g.active && g.endDate && <span className="tag tag-neutral">До {fmtDate(g.endDate)}</span>}
+                        {g.active && !g.endDate && g.attentionCount === 0 && <span className="tag tag-ok">Активна</span>}
+                      </span>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
           ) : (
             <div data-cols3>
               {rows.map((g) => (
@@ -649,6 +694,39 @@ export function TeacherGroupsPage() {
 
           {individualRows.length === 0 ? (
             <div className="card-meta">{individual.length === 0 ? "Учеников пока нет." : "Ничего не найдено по этому запросу."}</div>
+          ) : view === "table" ? (
+            <table className="table">
+              <thead>
+                <tr>
+                  <th style={{ width: 32 }}><input type="checkbox" checked={selectedIndividualIds.length === individualRows.length} onChange={() => setSelectedIndividualIds(selectedIndividualIds.length === individualRows.length ? [] : individualRows.map((r) => r.id))} /></th>
+                  <th>Ученик</th>
+                  <th>Ближайшее занятие</th>
+                  <th>Расписание</th>
+                  <th>Средний балл</th>
+                  <th>Занятий</th>
+                  <th>Статус</th>
+                </tr>
+              </thead>
+              <tbody>
+                {individualRows.map((r) => (
+                  <tr key={r.id} onClick={() => navigate(`/teacher/students/${r.id}`)} style={{ cursor: "pointer" }}>
+                    <td onClick={(e) => e.stopPropagation()}><input type="checkbox" checked={selectedIndividualIds.includes(r.id)} onChange={() => toggleIndividualSelected(r.id)} /></td>
+                    <td>{r.name}{r.grade ? ` · ${r.grade} класс` : ""}</td>
+                    <td>{r.nextLesson ? `${fmtDate(r.nextLesson.startAt.slice(0, 10))} · ${r.nextLesson.startAt.slice(11, 16)}` : "—"}</td>
+                    <td>{scheduleSummary(r.scheduleSlots) || "—"}</td>
+                    <td>{r.avg || "—"} / цель {r.goal}</td>
+                    <td>{r.lessonCount}</td>
+                    <td>
+                      <span style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
+                        <span className={`tag ${RISK_LABEL[r.risk].cls}`}>{RISK_LABEL[r.risk].label}</span>
+                        {r.scheduleSlots && r.scheduleSlots.length > 0 && !r.scheduleActive && <span className="tag tag-neutral">Расписание неактивно</span>}
+                        {r.scheduleActive && r.scheduleEndDate && <span className="tag tag-neutral">До {fmtDate(r.scheduleEndDate)}</span>}
+                      </span>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
           ) : (
             <div data-cols3>
               {individualRows.map((r) => (
