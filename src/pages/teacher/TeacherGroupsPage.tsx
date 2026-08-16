@@ -156,6 +156,16 @@ export function TeacherGroupsPage() {
   const [materialUrl, setMaterialUrl] = useState("");
   const [savingMaterial, setSavingMaterial] = useState(false);
 
+  const [lessonOpen, setLessonOpen] = useState(false);
+  const [lessonStudentId, setLessonStudentId] = useState("");
+  const [lessonTitle, setLessonTitle] = useState("");
+  const [lessonDate, setLessonDate] = useState(() => new Date().toISOString().slice(0, 10));
+  const [lessonTime, setLessonTime] = useState("17:00");
+  const [lessonDuration, setLessonDuration] = useState("60");
+  const [lessonFormat, setLessonFormat] = useState<"offline" | "online">("offline");
+  const [lessonLocation, setLessonLocation] = useState("");
+  const [creatingLesson, setCreatingLesson] = useState(false);
+
   const grades = useMemo(() => Array.from(new Set(groups.map((g) => g.grade).filter((g): g is number => g != null))).sort((a, b) => a - b), [groups]);
   const totalStudents = useMemo(() => new Set(groups.flatMap((g) => g.studentIds)).size, [groups]);
   const subjectName = (id: string) => SUBJECTS.find((s) => s.id === id)?.name ?? id;
@@ -368,6 +378,39 @@ export function TeacherGroupsPage() {
     }
   };
 
+  const openCreateLesson = () => {
+    setLessonStudentId("");
+    setLessonTitle("");
+    setLessonDate(new Date().toISOString().slice(0, 10));
+    setLessonTime("17:00");
+    setLessonDuration("60");
+    setLessonFormat("offline");
+    setLessonLocation("");
+    setLessonOpen(true);
+  };
+
+  const createIndividualLesson = async () => {
+    if (!lessonStudentId || !lessonDate || !lessonTime) return;
+    setCreatingLesson(true);
+    try {
+      await api.post("/teacher/lessons", {
+        studentId: lessonStudentId,
+        title: lessonTitle.trim(),
+        startAt: `${lessonDate}T${lessonTime}`,
+        durationMinutes: Number(lessonDuration) || 60,
+        format: lessonFormat,
+        location: lessonLocation.trim(),
+      });
+      show("Занятие добавлено", "ok");
+      setLessonOpen(false);
+      reloadIndividual();
+    } catch (e) {
+      show(e instanceof ApiError ? e.message : "Не удалось создать занятие", "bad");
+    } finally {
+      setCreatingLesson(false);
+    }
+  };
+
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
       <div style={{ display: "flex", flexWrap: "wrap", gap: 10, alignItems: "center", justifyContent: "space-between" }}>
@@ -375,7 +418,11 @@ export function TeacherGroupsPage() {
           <h1 style={{ margin: 0, fontSize: 22 }}>Занятия</h1>
           <p className="card-meta" style={{ margin: "2px 0 0" }}>Групп: {groups.length} · учеников в группах: {totalStudents} · индивидуально: {individual.length}</p>
         </div>
-        {section === "groups" && <button type="button" className="btn btn-primary btn-sm" onClick={openCreate}>Создать группу</button>}
+        {section === "groups" ? (
+          <button type="button" className="btn btn-primary btn-sm" onClick={openCreate}>Создать группу</button>
+        ) : (
+          <button type="button" className="btn btn-primary btn-sm" onClick={openCreateLesson}>Добавить занятие</button>
+        )}
       </div>
 
       <div className="seg" style={{ alignSelf: "flex-start" }}>
@@ -750,6 +797,62 @@ export function TeacherGroupsPage() {
             <div className="field">
               <label>Ссылка (необязательно)</label>
               <input className="input" value={materialUrl} onChange={(e) => setMaterialUrl(e.target.value)} placeholder="https://..." />
+            </div>
+          </div>
+        </Modal>
+      )}
+
+      {lessonOpen && (
+        <Modal
+          title="Добавить индивидуальное занятие"
+          onClose={() => setLessonOpen(false)}
+          actions={
+            <>
+              <button type="button" className="btn btn-secondary" onClick={() => setLessonOpen(false)}>Закрыть</button>
+              <button type="button" className="btn btn-primary" disabled={!lessonStudentId || !lessonDate || !lessonTime || creatingLesson} onClick={createIndividualLesson}>
+                Создать
+              </button>
+            </>
+          }
+        >
+          <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+            <div className="field">
+              <label>Ученик</label>
+              <select className="input" value={lessonStudentId} onChange={(e) => setLessonStudentId(e.target.value)}>
+                <option value="">Выберите...</option>
+                {roster.map((r) => <option key={r.id} value={r.id}>{r.name}</option>)}
+              </select>
+            </div>
+            <div className="field">
+              <label>Тема занятия (необязательно)</label>
+              <input className="input" value={lessonTitle} onChange={(e) => setLessonTitle(e.target.value)} placeholder="Например, квадратные уравнения" />
+            </div>
+            <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
+              <div className="field" style={{ minWidth: 150 }}>
+                <label>Дата</label>
+                <input className="input" type="date" value={lessonDate} onChange={(e) => setLessonDate(e.target.value)} />
+              </div>
+              <div className="field" style={{ minWidth: 110 }}>
+                <label>Время</label>
+                <input className="input" type="time" value={lessonTime} onChange={(e) => setLessonTime(e.target.value)} />
+              </div>
+              <div className="field" style={{ minWidth: 110 }}>
+                <label>Длительность, мин</label>
+                <input className="input" type="number" value={lessonDuration} onChange={(e) => setLessonDuration(e.target.value)} />
+              </div>
+            </div>
+            <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
+              <div className="field" style={{ minWidth: 140 }}>
+                <label>Формат</label>
+                <select className="input" value={lessonFormat} onChange={(e) => setLessonFormat(e.target.value as "offline" | "online")}>
+                  <option value="offline">Очно</option>
+                  <option value="online">Онлайн</option>
+                </select>
+              </div>
+              <div className="field" style={{ flex: 1, minWidth: 180 }}>
+                <label>Место / ссылка</label>
+                <input className="input" value={lessonLocation} onChange={(e) => setLessonLocation(e.target.value)} placeholder="Кабинет 12 или ссылка на звонок" />
+              </div>
             </div>
           </div>
         </Modal>
