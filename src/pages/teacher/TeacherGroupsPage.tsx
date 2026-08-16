@@ -42,6 +42,8 @@ interface GroupRow {
   scheduleDays: number[] | null;
   scheduleTime: string | null;
   startDate: string | null;
+  endDate: string | null;
+  active: boolean;
   color: string | null;
   maxStudents: number | null;
   hwDefaults: string | null;
@@ -84,13 +86,15 @@ interface GroupFormState {
   scheduleDays: number[];
   scheduleTime: string;
   startDate: string;
+  endDate: string;
+  active: boolean;
   color: string;
   maxStudents: string;
   hw: HwDefaults;
 }
 
 function emptyForm(): GroupFormState {
-  return { name: "", subjectId: SUBJECTS[0]?.id ?? "", grade: "", description: "", direction: "", goal: "", scheduleDays: [], scheduleTime: "17:00", startDate: "", color: "#e1ad66", maxStudents: "", hw: { ...DEFAULT_HW } };
+  return { name: "", subjectId: SUBJECTS[0]?.id ?? "", grade: "", description: "", direction: "", goal: "", scheduleDays: [], scheduleTime: "17:00", startDate: "", endDate: "", active: true, color: "#e1ad66", maxStudents: "", hw: { ...DEFAULT_HW } };
 }
 
 function formFromGroup(g: GroupRow): GroupFormState {
@@ -104,6 +108,7 @@ function formFromGroup(g: GroupRow): GroupFormState {
   return {
     name: g.name, subjectId: g.subjectId, grade: g.grade ? String(g.grade) : "", description: g.description || "",
     direction: g.direction || "", goal: g.goal || "", scheduleDays: g.scheduleDays || [], scheduleTime: g.scheduleTime || "17:00", startDate: g.startDate || "",
+    endDate: g.endDate || "", active: g.active,
     color: g.color || "#e1ad66", maxStudents: g.maxStudents ? String(g.maxStudents) : "", hw,
   };
 }
@@ -137,6 +142,10 @@ export function TeacherGroupsPage() {
   const [newStudentName, setNewStudentName] = useState("");
   const [newStudentLastName, setNewStudentLastName] = useState("");
   const [newStudentEmail, setNewStudentEmail] = useState("");
+  const [newStudentStartScore, setNewStudentStartScore] = useState("");
+  const [newStudentGoalScore, setNewStudentGoalScore] = useState("");
+  const [newStudentStartGrade, setNewStudentStartGrade] = useState("");
+  const [newStudentGoalGrade, setNewStudentGoalGrade] = useState("");
   const [savingMembers, setSavingMembers] = useState(false);
   const [linkCopied, setLinkCopied] = useState(false);
 
@@ -214,6 +223,8 @@ export function TeacherGroupsPage() {
         scheduleDays: form.scheduleDays,
         scheduleTime: form.scheduleDays.length ? form.scheduleTime : null,
         startDate: form.startDate || null,
+        endDate: form.endDate || null,
+        active: form.active,
         color: form.color || null,
         maxStudents: form.maxStudents.trim() ? Number(form.maxStudents) : null,
         hwDefaults: JSON.stringify({
@@ -260,6 +271,20 @@ export function TeacherGroupsPage() {
     }
   };
 
+  const generateLessons = async () => {
+    if (!editingId) return;
+    setSaving(true);
+    try {
+      const { created } = await api.post<{ created: number }>(`/teacher/groups/${editingId}/generate-lessons`, {});
+      show(created > 0 ? `Добавлено занятий: ${created}` : "Все занятия по расписанию уже в календаре", "ok");
+      reloadGroups();
+    } catch (e) {
+      show(e instanceof ApiError ? e.message : "Не удалось внести занятия в календарь", "bad");
+    } finally {
+      setSaving(false);
+    }
+  };
+
   const openMembers = (g: GroupRow) => { setMembersGroupId(g.id); setMemberSearch(""); setSelectedStudents([]); setNewStudentName(""); setNewStudentLastName(""); setNewStudentEmail(""); setLinkCopied(false); };
 
   const availableStudents = roster.filter((r) => !membersGroup || !r.groupIds.includes(membersGroup.id)).filter((r) => !memberSearch.trim() || r.name.toLowerCase().includes(memberSearch.trim().toLowerCase()));
@@ -287,10 +312,15 @@ export function TeacherGroupsPage() {
   const createAndAddStudent = async () => {
     if (!membersGroup || !newStudentName.trim() || !newStudentEmail.trim()) return;
     setSavingMembers(true);
+    const isGradeMode = membersGroup.direction === "school" || membersGroup.direction === "improvement";
+    const scoreFields = isGradeMode
+      ? { startGrade: newStudentStartGrade || undefined, goalGrade: newStudentGoalGrade || undefined }
+      : { startScore: newStudentStartScore || undefined, goalScore: newStudentGoalScore || undefined };
     try {
-      await api.post("/teacher/students", { name: newStudentName.trim(), lastName: newStudentLastName.trim(), email: newStudentEmail.trim(), groupId: membersGroup.id });
+      await api.post("/teacher/students", { name: newStudentName.trim(), lastName: newStudentLastName.trim(), email: newStudentEmail.trim(), groupId: membersGroup.id, ...scoreFields });
       show("Ученик создан и добавлен в группу", "ok");
       setNewStudentName(""); setNewStudentLastName(""); setNewStudentEmail("");
+      setNewStudentStartScore(""); setNewStudentGoalScore(""); setNewStudentStartGrade(""); setNewStudentGoalGrade("");
       reloadGroups();
       reloadRoster();
     } catch (e) {
@@ -410,7 +440,11 @@ export function TeacherGroupsPage() {
                     {g.currentTopic && <div>Тема: {g.currentTopic}</div>}
                     {g.lastHomework && <div>ДЗ «{g.lastHomework.title}»: сдали {g.lastHomework.done} из {g.lastHomework.total}</div>}
                     <div>Средний балл: {g.avgScore || "—"}</div>
-                    {g.attentionCount > 0 && <span className="tag tag-bad" style={{ alignSelf: "flex-start", marginTop: 2 }}>{g.attentionCount} {g.attentionCount === 1 ? "ученик отстаёт" : "учеников отстают"}</span>}
+                    <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
+                      {g.attentionCount > 0 && <span className="tag tag-bad" style={{ marginTop: 2 }}>{g.attentionCount} {g.attentionCount === 1 ? "ученик отстаёт" : "учеников отстают"}</span>}
+                      {!g.active && <span className="tag tag-neutral" style={{ marginTop: 2 }}>Неактивна</span>}
+                      {g.active && g.endDate && <span className="tag tag-neutral" style={{ marginTop: 2 }}>До {fmtDate(g.endDate)}</span>}
+                    </div>
                   </div>
 
                   <div style={{ display: "flex", flexWrap: "wrap", gap: 6, marginTop: 10 }}>
@@ -554,11 +588,27 @@ export function TeacherGroupsPage() {
                 <label>Дата начала обучения</label>
                 <input className="input" type="date" value={form.startDate} onChange={(e) => setForm((f) => ({ ...f, startDate: e.target.value }))} />
               </div>
+              <div className="field" style={{ flex: 1, minWidth: 160 }}>
+                <label>Дата окончания (необязательно)</label>
+                <input className="input" type="date" value={form.endDate} onChange={(e) => setForm((f) => ({ ...f, endDate: e.target.value }))} />
+              </div>
               <div className="field" style={{ flex: 1, minWidth: 140 }}>
                 <label>Макс. учеников</label>
                 <input className="input" type="number" min={1} value={form.maxStudents} onChange={(e) => setForm((f) => ({ ...f, maxStudents: e.target.value }))} placeholder="12" />
               </div>
             </div>
+            <label style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 13.5 }}>
+              <input type="checkbox" checked={form.active} onChange={(e) => setForm((f) => ({ ...f, active: e.target.checked }))} />
+              Группа активна {!form.active && "— занятия по расписанию из этой группы будут удалены из календаря"}
+            </label>
+            {editingId && (
+              <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
+                <button type="button" className="btn btn-secondary btn-sm" disabled={form.scheduleDays.length === 0 || saving} onClick={generateLessons}>
+                  Внести в календарь
+                </button>
+                {form.scheduleDays.length === 0 && <span className="card-meta">Сначала укажите дни расписания выше</span>}
+              </div>
+            )}
             <div className="field">
               <label>Описание (необязательно)</label>
               <input className="input" value={form.description} onChange={(e) => setForm((f) => ({ ...f, description: e.target.value }))} placeholder="Например, подготовка к ЦТ, вечерняя группа" />
@@ -643,6 +693,17 @@ export function TeacherGroupsPage() {
                 <input className="input" style={{ flex: 1, minWidth: 120 }} value={newStudentLastName} onChange={(e) => setNewStudentLastName(e.target.value)} placeholder="Фамилия" />
               </div>
               <input className="input" style={{ marginTop: 6 }} type="email" value={newStudentEmail} onChange={(e) => setNewStudentEmail(e.target.value)} placeholder="Email для входа" />
+              {membersGroup.direction === "school" || membersGroup.direction === "improvement" ? (
+                <div style={{ display: "flex", gap: 8, marginTop: 6 }}>
+                  <input className="input" style={{ flex: 1 }} type="number" min={1} max={10} value={newStudentStartGrade} onChange={(e) => setNewStudentStartGrade(e.target.value)} placeholder="Начальная отметка" />
+                  <input className="input" style={{ flex: 1 }} type="number" min={1} max={10} value={newStudentGoalGrade} onChange={(e) => setNewStudentGoalGrade(e.target.value)} placeholder="Желаемая отметка" />
+                </div>
+              ) : (
+                <div style={{ display: "flex", gap: 8, marginTop: 6 }}>
+                  <input className="input" style={{ flex: 1 }} type="number" min={0} max={100} value={newStudentStartScore} onChange={(e) => setNewStudentStartScore(e.target.value)} placeholder="Начальный балл ЦТ" />
+                  <input className="input" style={{ flex: 1 }} type="number" min={0} max={100} value={newStudentGoalScore} onChange={(e) => setNewStudentGoalScore(e.target.value)} placeholder="Целевой балл ЦТ" />
+                </div>
+              )}
               <button type="button" className="btn btn-secondary btn-sm" style={{ marginTop: 8 }} disabled={!newStudentName.trim() || !newStudentEmail.trim() || savingMembers} onClick={createAndAddStudent}>
                 Создать и добавить
               </button>

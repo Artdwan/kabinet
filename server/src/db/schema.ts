@@ -27,6 +27,9 @@ export const students = sqliteTable("students", {
   grade: integer("grade").notNull().default(11),
   city: text("city").notNull().default(""),
   goalScore: integer("goal_score").notNull().default(85),
+  startScore: integer("start_score"),
+  startGrade: integer("start_grade"),
+  goalGrade: integer("goal_grade"),
   teacherId: text("teacher_id").references(() => users.id),
   note: text("note"),
 });
@@ -53,6 +56,8 @@ export const groups = sqliteTable("groups", {
   scheduleDays: text("schedule_days", { mode: "json" }), // number[], 0=Monday..6=Sunday
   scheduleTime: text("schedule_time"), // "17:00"
   startDate: text("start_date"),
+  endDate: text("end_date"),
+  active: integer("active", { mode: "boolean" }).notNull().default(true),
   color: text("color"),
   maxStudents: integer("max_students"),
   hwDefaults: text("hw_defaults", { mode: "json" }), // { dueDays, hintsAllowed, showSolutions, maxAttempts, remindersEnabled }
@@ -75,6 +80,9 @@ export const studentInvites = sqliteTable("student_invites", {
   lastName: text("last_name").notNull().default(""),
   grade: integer("grade"),
   goalScore: integer("goal_score"),
+  startScore: integer("start_score"),
+  startGrade: integer("start_grade"),
+  goalGrade: integer("goal_grade"),
   note: text("note"),
   createdAt: text("created_at").notNull(),
   acceptedUserId: text("accepted_user_id").references(() => users.id),

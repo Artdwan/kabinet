@@ -44,6 +44,9 @@ interface StudentProfile {
   email: string;
   grade: number;
   goalScore: number;
+  startScore: number | null;
+  startGrade: number | null;
+  goalGrade: number | null;
   note: string | null;
   groups: { id: string; name: string }[];
   avg: number;
@@ -68,7 +71,10 @@ export function TeacherStudentProfilePage() {
   const [editName, setEditName] = useState("");
   const [editLastName, setEditLastName] = useState("");
   const [editGrade, setEditGrade] = useState("");
+  const [editStartScore, setEditStartScore] = useState("");
   const [editGoal, setEditGoal] = useState("");
+  const [editStartGrade, setEditStartGrade] = useState("");
+  const [editGoalGrade, setEditGoalGrade] = useState("");
   const [saving, setSaving] = useState(false);
   const [deleting, setDeleting] = useState(false);
 
@@ -80,7 +86,10 @@ export function TeacherStudentProfilePage() {
     setEditName(profile.name);
     setEditLastName(profile.lastName);
     setEditGrade(String(profile.grade));
+    setEditStartScore(profile.startScore !== null ? String(profile.startScore) : "");
     setEditGoal(String(profile.goalScore));
+    setEditStartGrade(profile.startGrade !== null ? String(profile.startGrade) : "");
+    setEditGoalGrade(profile.goalGrade !== null ? String(profile.goalGrade) : "");
     setEditOpen(true);
   };
 
@@ -91,6 +100,7 @@ export function TeacherStudentProfilePage() {
       await api.patch(`/teacher/students/${profile.id}`, {
         name: editName.trim(), lastName: editLastName.trim(),
         grade: editGrade || undefined, goalScore: editGoal || undefined,
+        startScore: editStartScore || null, startGrade: editStartGrade || null, goalGrade: editGoalGrade || null,
       });
       show("Данные ученика обновлены", "ok");
       setEditOpen(false);
@@ -285,14 +295,30 @@ export function TeacherStudentProfilePage() {
                 <input className="input" value={editLastName} onChange={(e) => setEditLastName(e.target.value)} />
               </div>
             </div>
+            <div className="field" style={{ maxWidth: 140 }}>
+              <label>Класс</label>
+              <input className="input" type="number" min={1} max={11} value={editGrade} onChange={(e) => setEditGrade(e.target.value)} />
+            </div>
+            <div className="card-title" style={{ fontSize: 13 }}>Подготовка к ЦТ</div>
             <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
-              <div className="field" style={{ flex: 1, minWidth: 120 }}>
-                <label>Класс</label>
-                <input className="input" type="number" min={1} max={11} value={editGrade} onChange={(e) => setEditGrade(e.target.value)} />
+              <div className="field" style={{ flex: 1, minWidth: 140 }}>
+                <label>Начальный балл</label>
+                <input className="input" type="number" min={0} max={100} value={editStartScore} onChange={(e) => setEditStartScore(e.target.value)} />
               </div>
               <div className="field" style={{ flex: 1, minWidth: 140 }}>
-                <label>Целевой балл ЦТ</label>
+                <label>Целевой балл</label>
                 <input className="input" type="number" min={0} max={100} value={editGoal} onChange={(e) => setEditGoal(e.target.value)} />
+              </div>
+            </div>
+            <div className="card-title" style={{ fontSize: 13 }}>Школьная программа / повышение успеваемости</div>
+            <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
+              <div className="field" style={{ flex: 1, minWidth: 140 }}>
+                <label>Начальная отметка</label>
+                <input className="input" type="number" min={1} max={10} value={editStartGrade} onChange={(e) => setEditStartGrade(e.target.value)} />
+              </div>
+              <div className="field" style={{ flex: 1, minWidth: 140 }}>
+                <label>Желаемая отметка</label>
+                <input className="input" type="number" min={1} max={10} value={editGoalGrade} onChange={(e) => setEditGoalGrade(e.target.value)} />
               </div>
             </div>
           </div>

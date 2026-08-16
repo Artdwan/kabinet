@@ -55,6 +55,9 @@ authRouter.post("/register", async (req, res) => {
         grade: invite?.grade ?? 11,
         city: "",
         goalScore: invite?.goalScore ?? 85,
+        startScore: invite?.startScore ?? null,
+        startGrade: invite?.startGrade ?? null,
+        goalGrade: invite?.goalGrade ?? null,
         teacherId: invite?.teacherId ?? null,
         note: invite?.note ?? null,
       })

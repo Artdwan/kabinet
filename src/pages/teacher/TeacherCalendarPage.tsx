@@ -98,7 +98,7 @@ function minutesOfDay(iso: string): number {
 export function TeacherCalendarPage() {
   const [searchParams, setSearchParams] = useSearchParams();
   const { show } = useToast();
-  const [view, setView] = useState<"day" | "week" | "month" | "year">("week");
+  const [view, setView] = useState<"day" | "week" | "month" | "year" | "list">("week");
   const [refDate, setRefDate] = useState(new Date());
   const [miniMonth, setMiniMonth] = useState(new Date());
   const { data: groups = [] } = useApiData<GroupRow[]>("/teacher/groups");
@@ -112,8 +112,9 @@ export function TeacherCalendarPage() {
     view === "year" ? new Date(refDate.getFullYear(), 0, 1) :
     view === "month" ? startOfMonthGrid(refDate) :
     view === "week" ? startOfWeek(refDate) :
+    view === "list" ? new Date(new Date().setHours(0, 0, 0, 0)) :
     new Date(new Date(refDate).setHours(0, 0, 0, 0));
-  const days = view === "year" ? 366 : view === "month" ? 42 : view === "week" ? 7 : 1;
+  const days = view === "year" ? 366 : view === "month" ? 42 : view === "week" ? 7 : view === "list" ? 90 : 1;
   const rangeEnd = new Date(rangeStart);
   rangeEnd.setDate(rangeEnd.getDate() + days);
 
@@ -439,22 +440,29 @@ export function TeacherCalendarPage() {
       <div style={{ flex: 1, minWidth: 0, minHeight: 0, display: "flex", flexDirection: "column", gap: 16 }}>
         <div style={{ display: "flex", flexWrap: "wrap", gap: 10, justifyContent: "space-between", alignItems: "center", flex: "none" }}>
           <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-            <button type="button" className="btn btn-ghost btn-sm" onClick={() => step(-1)}>
-              <ChevronLeft size={16} />
-            </button>
-            <span style={{ fontFamily: "var(--font-heading)", fontSize: 18, minWidth: 160, textAlign: "center" }}>
-              {view === "year"
-                ? `${refDate.getFullYear()}`
-                : view === "month"
-                  ? `${MONTH_NAMES[refDate.getMonth()]} ${refDate.getFullYear()}`
-                  : view === "week"
-                    ? `Неделя с ${toDateInput(rangeStart)}`
-                    : `${refDate.getDate()} ${MONTH_NAMES[refDate.getMonth()].toLowerCase()}`}
-            </span>
-            <button type="button" className="btn btn-ghost btn-sm" onClick={() => step(1)}>
-              <ChevronRight size={16} />
-            </button>
-            <button type="button" className="btn btn-ghost btn-sm" onClick={() => { setRefDate(new Date()); setMiniMonth(new Date()); }}>Сегодня</button>
+            {view !== "list" && (
+              <>
+                <button type="button" className="btn btn-ghost btn-sm" onClick={() => step(-1)}>
+                  <ChevronLeft size={16} />
+                </button>
+                <span style={{ fontFamily: "var(--font-heading)", fontSize: 18, minWidth: 160, textAlign: "center" }}>
+                  {view === "year"
+                    ? `${refDate.getFullYear()}`
+                    : view === "month"
+                      ? `${MONTH_NAMES[refDate.getMonth()]} ${refDate.getFullYear()}`
+                      : view === "week"
+                        ? `Неделя с ${toDateInput(rangeStart)}`
+                        : `${refDate.getDate()} ${MONTH_NAMES[refDate.getMonth()].toLowerCase()}`}
+                </span>
+                <button type="button" className="btn btn-ghost btn-sm" onClick={() => step(1)}>
+                  <ChevronRight size={16} />
+                </button>
+                <button type="button" className="btn btn-ghost btn-sm" onClick={() => { setRefDate(new Date()); setMiniMonth(new Date()); }}>Сегодня</button>
+              </>
+            )}
+            {view === "list" && (
+              <span style={{ fontFamily: "var(--font-heading)", fontSize: 18 }}>Занятия на ближайшие 90 дней</span>
+            )}
           </div>
           <div style={{ display: "flex", gap: 8 }}>
             <div className="seg">
@@ -462,6 +470,7 @@ export function TeacherCalendarPage() {
               <button type="button" className="seg-opt" style={view === "week" ? { color: "var(--color-accent)", background: "var(--color-accent-100)" } : undefined} onClick={() => setView("week")}>Неделя</button>
               <button type="button" className="seg-opt" style={view === "month" ? { color: "var(--color-accent)", background: "var(--color-accent-100)" } : undefined} onClick={() => setView("month")}>Месяц</button>
               <button type="button" className="seg-opt" style={view === "year" ? { color: "var(--color-accent)", background: "var(--color-accent-100)" } : undefined} onClick={() => setView("year")}>Год</button>
+              <button type="button" className="seg-opt" style={view === "list" ? { color: "var(--color-accent)", background: "var(--color-accent-100)" } : undefined} onClick={() => setView("list")}>Список</button>
             </div>
             <button type="button" className="btn btn-primary btn-sm" onClick={() => { setCreateDate(toDateInput(new Date())); setCreateOpen(true); }}>
               Добавить занятие
@@ -572,6 +581,42 @@ export function TeacherCalendarPage() {
           </div>
         ) : view === "week" ? (
           renderHourGrid(gridDays, (d) => WEEKDAYS[(d.getDay() + 6) % 7])
+        ) : view === "list" ? (
+          <div className="card" style={{ padding: 0, overflow: "hidden" }}>
+            <table className="table">
+              <thead>
+                <tr>
+                  <th>Дата</th>
+                  <th>Время</th>
+                  <th>Группа / ученик</th>
+                  <th>Тема</th>
+                  <th>Формат</th>
+                  <th>Статус</th>
+                </tr>
+              </thead>
+              <tbody>
+                {[...lessons].sort((a, b) => a.startAt.localeCompare(b.startAt)).map((l) => {
+                  const color = eventColor(l.groupId || l.studentId || l.id);
+                  return (
+                    <tr key={l.id} onClick={() => setDetailId(l.id)} style={{ cursor: "pointer" }}>
+                      <td>{l.startAt.slice(0, 10)}{l.startAt.slice(0, 10) === todayKey ? " (сегодня)" : ""}</td>
+                      <td>{l.startAt.slice(11, 16)} · {l.durationMinutes} мин</td>
+                      <td>
+                        <span style={{ display: "inline-flex", alignItems: "center", gap: 6 }}>
+                          <span style={{ width: 8, height: 8, borderRadius: "50%", background: color.accent, display: "inline-block" }} />
+                          {l.groupName || l.studentName}{l.seriesId ? " ↻" : ""}
+                        </span>
+                      </td>
+                      <td>{l.title || "—"}</td>
+                      <td>{l.format === "online" ? "Онлайн" : "Очно"}{l.location ? ` · ${l.location}` : ""}</td>
+                      <td><span className={`tag ${STATUS_LABEL[l.status].cls}`}>{STATUS_LABEL[l.status].label}</span></td>
+                    </tr>
+                  );
+                })}
+                {lessons.length === 0 && <tr><td colSpan={6} className="card-meta">Занятий не запланировано.</td></tr>}
+              </tbody>
+            </table>
+          </div>
         ) : (
           renderHourGrid(gridDays, () => "Сегодня")
         )}

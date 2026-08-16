@@ -26,6 +26,7 @@ interface RosterRow {
 interface GroupRow {
   id: string;
   name: string;
+  direction: "ct" | "school" | "improvement" | null;
 }
 
 interface CreatedStudent {
@@ -73,7 +74,10 @@ export function TeacherStudentsPage() {
   const [newStudentEmail, setNewStudentEmail] = useState("");
   const [newStudentGroup, setNewStudentGroup] = useState("");
   const [newStudentGrade, setNewStudentGrade] = useState("11");
+  const [newStudentStartScore, setNewStudentStartScore] = useState("");
   const [newStudentGoal, setNewStudentGoal] = useState("85");
+  const [newStudentStartGrade, setNewStudentStartGrade] = useState("");
+  const [newStudentGoalGrade, setNewStudentGoalGrade] = useState("");
   const [newStudentNote, setNewStudentNote] = useState("");
   const [creatingStudent, setCreatingStudent] = useState(false);
   const [createdStudent, setCreatedStudent] = useState<CreatedStudent | null>(null);
@@ -113,13 +117,19 @@ export function TeacherStudentsPage() {
     }
   };
 
+  const selectedGroupDirection = groups.find((g) => g.id === newStudentGroup)?.direction ?? null;
+  const isGradeMode = selectedGroupDirection === "school" || selectedGroupDirection === "improvement";
+
   const resetForm = () => {
     setNewStudentName("");
     setNewStudentLastName("");
     setNewStudentEmail("");
     setNewStudentGroup("");
     setNewStudentGrade("11");
+    setNewStudentStartScore("");
     setNewStudentGoal("85");
+    setNewStudentStartGrade("");
+    setNewStudentGoalGrade("");
     setNewStudentNote("");
   };
 
@@ -127,6 +137,9 @@ export function TeacherStudentsPage() {
     if (!newStudentName.trim()) return;
     if (addMode === "password" && !newStudentEmail.trim()) return;
     setCreatingStudent(true);
+    const scoreFields = isGradeMode
+      ? { startGrade: newStudentStartGrade || undefined, goalGrade: newStudentGoalGrade || undefined }
+      : { startScore: newStudentStartScore || undefined, goalScore: newStudentGoal || undefined };
     try {
       if (addMode === "invite") {
         const { token } = await api.post<{ token: string }>("/teacher/student-invites", {
@@ -134,7 +147,7 @@ export function TeacherStudentsPage() {
           lastName: newStudentLastName.trim(),
           groupId: newStudentGroup || undefined,
           grade: newStudentGrade || undefined,
-          goalScore: newStudentGoal || undefined,
+          ...scoreFields,
           note: newStudentNote.trim() || undefined,
         });
         setCreatedInviteLink(`${window.location.origin}/invite/${token}`);
@@ -147,7 +160,7 @@ export function TeacherStudentsPage() {
           email: newStudentEmail.trim(),
           groupId: newStudentGroup || undefined,
           grade: newStudentGrade || undefined,
-          goalScore: newStudentGoal || undefined,
+          ...scoreFields,
           note: newStudentNote.trim() || undefined,
         });
         setCreatedStudent(created);
@@ -367,10 +380,6 @@ export function TeacherStudentsPage() {
                 <label>Класс</label>
                 <input className="input" type="number" min={1} max={11} value={newStudentGrade} onChange={(e) => setNewStudentGrade(e.target.value)} />
               </div>
-              <div className="field" style={{ minWidth: 140 }}>
-                <label>Целевой балл ЦТ</label>
-                <input className="input" type="number" min={0} max={100} value={newStudentGoal} onChange={(e) => setNewStudentGoal(e.target.value)} />
-              </div>
               <div className="field" style={{ flex: 1, minWidth: 160 }}>
                 <label>Группа (необязательно)</label>
                 <select className="input" value={newStudentGroup} onChange={(e) => setNewStudentGroup(e.target.value)}>
@@ -381,6 +390,29 @@ export function TeacherStudentsPage() {
                 </select>
               </div>
             </div>
+            {isGradeMode ? (
+              <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
+                <div className="field" style={{ flex: 1, minWidth: 140 }}>
+                  <label>Начальная отметка</label>
+                  <input className="input" type="number" min={1} max={10} value={newStudentStartGrade} onChange={(e) => setNewStudentStartGrade(e.target.value)} placeholder="6" />
+                </div>
+                <div className="field" style={{ flex: 1, minWidth: 140 }}>
+                  <label>Желаемая отметка</label>
+                  <input className="input" type="number" min={1} max={10} value={newStudentGoalGrade} onChange={(e) => setNewStudentGoalGrade(e.target.value)} placeholder="9" />
+                </div>
+              </div>
+            ) : (
+              <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
+                <div className="field" style={{ flex: 1, minWidth: 140 }}>
+                  <label>Начальный балл ЦТ</label>
+                  <input className="input" type="number" min={0} max={100} value={newStudentStartScore} onChange={(e) => setNewStudentStartScore(e.target.value)} placeholder="40" />
+                </div>
+                <div className="field" style={{ flex: 1, minWidth: 140 }}>
+                  <label>Целевой балл ЦТ</label>
+                  <input className="input" type="number" min={0} max={100} value={newStudentGoal} onChange={(e) => setNewStudentGoal(e.target.value)} />
+                </div>
+              </div>
+            )}
             <div className="field">
               <label>Заметка преподавателя (необязательно)</label>
               <input className="input" value={newStudentNote} onChange={(e) => setNewStudentNote(e.target.value)} placeholder="Например, приходит по вечерам, слабая алгебра" />

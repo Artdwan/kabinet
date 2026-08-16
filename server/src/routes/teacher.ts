@@ -178,6 +178,7 @@ teacherRouter.get("/groups/:id", (req: AuthedRequest, res) => {
     id: group.id, name: group.name, subjectId: group.subjectId, grade: group.grade, description: group.description,
     direction: group.direction, goal: group.goal, scheduleNote: group.scheduleNote,
     scheduleDays: group.scheduleDays, scheduleTime: group.scheduleTime, startDate: group.startDate,
+    endDate: group.endDate, active: group.active,
     color: group.color, maxStudents: group.maxStudents, hwDefaults: group.hwDefaults,
     students, avgScore, weakTopics, homeworkStats, upcomingLessons, recentLessons,
   });
@@ -195,10 +196,35 @@ function groupFieldsFromBody(body: any) {
   if (body.scheduleDays !== undefined) patch.scheduleDays = Array.isArray(body.scheduleDays) && body.scheduleDays.length ? body.scheduleDays.map(Number) : null;
   if (body.scheduleTime !== undefined) patch.scheduleTime = body.scheduleTime || null;
   if (body.startDate !== undefined) patch.startDate = body.startDate || null;
+  if (body.endDate !== undefined) patch.endDate = body.endDate || null;
+  if (body.active !== undefined) patch.active = Boolean(body.active);
   if (body.color !== undefined) patch.color = body.color || null;
   if (body.maxStudents !== undefined) patch.maxStudents = body.maxStudents === null || body.maxStudents === "" ? null : Number(body.maxStudents);
   if (body.hwDefaults !== undefined) patch.hwDefaults = body.hwDefaults || null;
   return patch;
+}
+
+// Removes future scheduled lessons that no longer fit the group's active/end-date state.
+function enforceGroupLifecycle(groupId: string) {
+  const group = db.select().from(s.groups).where(eq(s.groups.id, groupId)).get();
+  if (!group) return;
+  const nowIso = new Date().toISOString().slice(0, 16);
+  let cutoff: string | null = null;
+  if (!group.active) cutoff = nowIso;
+  else if (group.endDate) cutoff = `${group.endDate}T23:59`;
+  if (!cutoff) return;
+
+  const toRemove = db
+    .select()
+    .from(s.lessons)
+    .where(and(eq(s.lessons.groupId, groupId), eq(s.lessons.status, "scheduled")))
+    .all()
+    .filter((l) => l.startAt >= cutoff!)
+    .map((l) => l.id);
+  if (toRemove.length) {
+    db.delete(s.lessonAttendance).where(inArray(s.lessonAttendance.lessonId, toRemove)).run();
+    db.delete(s.lessons).where(inArray(s.lessons.id, toRemove)).run();
+  }
 }
 
 teacherRouter.post("/groups", (req: AuthedRequest, res) => {
@@ -220,7 +246,54 @@ teacherRouter.patch("/groups/:id", (req: AuthedRequest, res) => {
   if (!group) return res.status(404).json({ error: "Группа не найдена" });
   const patch = groupFieldsFromBody(req.body || {});
   db.update(s.groups).set(patch).where(eq(s.groups.id, groupId)).run();
+  enforceGroupLifecycle(groupId);
   res.json({ ok: true });
+});
+
+teacherRouter.post("/groups/:id/generate-lessons", (req: AuthedRequest, res) => {
+  const teacherId = req.auth!.sub;
+  const groupId = pstr(req.params.id);
+  const group = db.select().from(s.groups).where(and(eq(s.groups.id, groupId), eq(s.groups.teacherId, teacherId))).get();
+  if (!group) return res.status(404).json({ error: "Группа не найдена" });
+  const days = (group.scheduleDays as number[] | null) || [];
+  if (!days.length) return res.status(400).json({ error: "Сначала укажите дни расписания в настройках группы" });
+  if (!group.active) return res.status(400).json({ error: "Группа неактивна" });
+
+  const time = group.scheduleTime || "17:00";
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+  const start = group.startDate ? new Date(`${group.startDate}T00:00`) : today;
+  const rangeStart = start > today ? start : today;
+  const defaultHorizon = new Date(rangeStart);
+  defaultHorizon.setDate(defaultHorizon.getDate() + 12 * 7);
+  const until = group.endDate ? new Date(`${group.endDate}T00:00`) : defaultHorizon;
+
+  const existing = new Set(
+    db.select({ startAt: s.lessons.startAt }).from(s.lessons).where(eq(s.lessons.groupId, groupId)).all().map((l) => l.startAt),
+  );
+
+  const created: string[] = [];
+  const cursor = new Date(rangeStart);
+  while (cursor <= until) {
+    const weekday = (cursor.getDay() + 6) % 7; // 0=Monday
+    if (days.includes(weekday)) {
+      const startAt = `${cursor.toISOString().slice(0, 10)}T${time}`;
+      if (!existing.has(startAt)) {
+        const id = randomUUID();
+        db.insert(s.lessons)
+          .values({
+            id, teacherId, groupId, studentId: null, title: "", startAt,
+            durationMinutes: 60, format: "offline", location: "",
+            status: "scheduled", seriesId: `group-schedule:${groupId}`, note: null, createdAt: new Date().toISOString(),
+          })
+          .run();
+        created.push(id);
+      }
+    }
+    cursor.setDate(cursor.getDate() + 1);
+  }
+
+  res.json({ ok: true, created: created.length });
 });
 
 teacherRouter.delete("/groups/:id", (req: AuthedRequest, res) => {
@@ -311,7 +384,7 @@ teacherRouter.delete("/materials/:id", (req: AuthedRequest, res) => {
 
 teacherRouter.post("/students", (req: AuthedRequest, res) => {
   const teacherId = req.auth!.sub;
-  const { name, lastName, email, groupId, grade, goalScore, note } = req.body || {};
+  const { name, lastName, email, groupId, grade, goalScore, startScore, startGrade, goalGrade, note } = req.body || {};
   if (!name || !String(name).trim()) return res.status(400).json({ error: "Укажите имя ученика" });
   if (!email || !String(email).includes("@")) return res.status(400).json({ error: "Введите корректный email" });
 
@@ -338,6 +411,9 @@ teacherRouter.post("/students", (req: AuthedRequest, res) => {
       grade: grade ? Number(grade) : 11,
       city: "",
       goalScore: goalScore ? Number(goalScore) : 85,
+      startScore: startScore !== undefined && startScore !== "" ? Number(startScore) : null,
+      startGrade: startGrade !== undefined && startGrade !== "" ? Number(startGrade) : null,
+      goalGrade: goalGrade !== undefined && goalGrade !== "" ? Number(goalGrade) : null,
       teacherId,
       note: note && String(note).trim() ? String(note).trim() : null,
     })
@@ -367,7 +443,7 @@ teacherRouter.get("/student-invites", (req: AuthedRequest, res) => {
 
 teacherRouter.post("/student-invites", (req: AuthedRequest, res) => {
   const teacherId = req.auth!.sub;
-  const { name, lastName, groupId, grade, goalScore, note } = req.body || {};
+  const { name, lastName, groupId, grade, goalScore, startScore, startGrade, goalGrade, note } = req.body || {};
   if (!name || !String(name).trim()) return res.status(400).json({ error: "Укажите имя ученика" });
 
   if (groupId) {
@@ -382,6 +458,9 @@ teacherRouter.post("/student-invites", (req: AuthedRequest, res) => {
       name: String(name).trim(), lastName: String(lastName || "").trim(),
       grade: grade ? Number(grade) : null,
       goalScore: goalScore ? Number(goalScore) : null,
+      startScore: startScore !== undefined && startScore !== "" ? Number(startScore) : null,
+      startGrade: startGrade !== undefined && startGrade !== "" ? Number(startGrade) : null,
+      goalGrade: goalGrade !== undefined && goalGrade !== "" ? Number(goalGrade) : null,
       note: note && String(note).trim() ? String(note).trim() : null,
       createdAt: new Date().toISOString(),
     })
@@ -696,6 +775,7 @@ teacherRouter.get("/students/:id", (req: AuthedRequest, res) => {
   res.json({
     id: studentId, name: user.name, lastName: user.lastName, email: user.email,
     grade: student?.grade ?? 11, goalScore: student?.goalScore ?? 85, note: student?.note ?? null,
+    startScore: student?.startScore ?? null, startGrade: student?.startGrade ?? null, goalGrade: student?.goalGrade ?? null,
     groups, avg, lastActive: lastActive || null, homeworks, results, topicAccuracy,
   });
 });
@@ -705,7 +785,7 @@ teacherRouter.patch("/students/:id", (req: AuthedRequest, res) => {
   const studentId = pstr(req.params.id);
   if (!teacherStudentIds(teacherId).includes(studentId)) return res.status(404).json({ error: "Ученик не найден" });
 
-  const { name, lastName, grade, goalScore, note } = req.body || {};
+  const { name, lastName, grade, goalScore, startScore, startGrade, goalGrade, note } = req.body || {};
   if (name !== undefined || lastName !== undefined) {
     const userPatch: Partial<typeof s.users.$inferInsert> = {};
     if (name !== undefined && String(name).trim()) userPatch.name = String(name).trim();
@@ -716,6 +796,9 @@ teacherRouter.patch("/students/:id", (req: AuthedRequest, res) => {
   const patch: Partial<typeof s.students.$inferInsert> = {};
   if (grade !== undefined) patch.grade = Number(grade);
   if (goalScore !== undefined) patch.goalScore = Number(goalScore);
+  if (startScore !== undefined) patch.startScore = startScore === null || startScore === "" ? null : Number(startScore);
+  if (startGrade !== undefined) patch.startGrade = startGrade === null || startGrade === "" ? null : Number(startGrade);
+  if (goalGrade !== undefined) patch.goalGrade = goalGrade === null || goalGrade === "" ? null : Number(goalGrade);
   if (note !== undefined) patch.note = note && String(note).trim() ? String(note).trim() : null;
 
   db.update(s.students).set(patch).where(eq(s.students.userId, studentId)).run();
