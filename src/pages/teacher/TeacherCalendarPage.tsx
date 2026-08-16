@@ -21,6 +21,8 @@ interface LessonRow {
   status: "scheduled" | "done" | "cancelled";
   seriesId: string | null;
   note: string | null;
+  plannedStart: string | null;
+  overrideType: "none" | "moved" | "cancelled" | "extra" | "custom";
 }
 
 interface LessonDetail extends LessonRow {
@@ -138,9 +140,11 @@ export function TeacherCalendarPage() {
     });
   }, [lessonsRaw, groupFilter, subjectFilter, gradeFilter, groupInfo]);
 
+  // Cancelled lessons are never deleted (see PATCH/DELETE /lessons), so they must be filtered out
+  // of the grid views here rather than relying on them being absent from the data.
   const lessonsByDay = useMemo(() => {
     const map = new Map<string, LessonRow[]>();
-    lessons.forEach((l) => {
+    lessons.filter((l) => l.status !== "cancelled").forEach((l) => {
       const key = l.startAt.slice(0, 10);
       const arr = map.get(key) || [];
       arr.push(l);

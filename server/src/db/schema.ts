@@ -112,7 +112,9 @@ export const lessons = sqliteTable("lessons", {
   groupId: text("group_id").references(() => groups.id),
   studentId: text("student_id").references(() => users.id),
   title: text("title").notNull().default(""),
-  startAt: text("start_at").notNull(),
+  startAt: text("start_at").notNull(), // actual/current start time
+  plannedStart: text("planned_start"), // when this occurrence was originally due per the schedule; null for pre-migration rows
+  overrideType: text("override_type", { enum: ["none", "moved", "cancelled", "extra", "custom"] }).notNull().default("none"),
   durationMinutes: integer("duration_minutes").notNull().default(60),
   format: text("format", { enum: ["online", "offline"] }).notNull().default("offline"),
   location: text("location").notNull().default(""),

@@ -220,6 +220,9 @@ function groupFieldsFromBody(body: any) {
 }
 
 // Removes future scheduled lessons that no longer fit the group's active/end-date state.
+// Group deactivated or ended early: cancel (never delete) its future not-yet-conducted lessons,
+// whatever their override state — the group is stopping, so nothing further should happen, but
+// the record of what was planned/moved/etc. is kept.
 function enforceGroupLifecycle(groupId: string) {
   const group = db.select().from(s.groups).where(eq(s.groups.id, groupId)).get();
   if (!group) return;
@@ -229,22 +232,23 @@ function enforceGroupLifecycle(groupId: string) {
   else if (group.endDate) cutoff = `${group.endDate}T23:59`;
   if (!cutoff) return;
 
-  const toRemove = db
+  const toCancel = db
     .select()
     .from(s.lessons)
     .where(and(eq(s.lessons.groupId, groupId), eq(s.lessons.status, "scheduled")))
     .all()
     .filter((l) => l.startAt >= cutoff!)
     .map((l) => l.id);
-  if (toRemove.length) {
-    db.delete(s.lessonAttendance).where(inArray(s.lessonAttendance.lessonId, toRemove)).run();
-    db.delete(s.lessons).where(inArray(s.lessons.id, toRemove)).run();
+  if (toCancel.length) {
+    db.update(s.lessons).set({ status: "cancelled", overrideType: "cancelled" }).where(inArray(s.lessons.id, toCancel)).run();
   }
 }
 
-// Removes future auto-generated lessons that no longer match the group's current schedule slots
-// (e.g. a day was removed from the schedule after lessons for it were already generated).
-function pruneStaleGroupScheduleLessons(groupId: string) {
+// Reconciles auto-generated (overrideType "none") future lessons against the group's current
+// schedule slots. Untouched placeholders for slots that no longer exist are removed outright —
+// nothing of value lives on them. Moved/cancelled/extra/custom occurrences are never touched:
+// manual overrides always win over the schedule template.
+function reconcileGroupScheduleLessons(groupId: string) {
   const group = db.select().from(s.groups).where(eq(s.groups.id, groupId)).get();
   if (!group) return;
   const slots = (group.scheduleSlots as ScheduleSlot[] | null) || [];
@@ -256,12 +260,13 @@ function pruneStaleGroupScheduleLessons(groupId: string) {
   const toRemove = db
     .select()
     .from(s.lessons)
-    .where(and(eq(s.lessons.seriesId, seriesId), eq(s.lessons.status, "scheduled")))
+    .where(and(eq(s.lessons.seriesId, seriesId), eq(s.lessons.status, "scheduled"), eq(s.lessons.overrideType, "none")))
     .all()
-    .filter((l) => l.startAt >= nowIso)
+    .filter((l) => (l.plannedStart ?? l.startAt) >= nowIso)
     .filter((l) => {
-      const weekday = (new Date(l.startAt).getDay() + 6) % 7;
-      return slotsByDay.get(weekday) !== l.startAt.slice(11, 16);
+      const plannedStart = l.plannedStart ?? l.startAt;
+      const weekday = (new Date(plannedStart).getDay() + 6) % 7;
+      return slotsByDay.get(weekday) !== plannedStart.slice(11, 16);
     })
     .map((l) => l.id);
   if (toRemove.length) {
@@ -270,7 +275,7 @@ function pruneStaleGroupScheduleLessons(groupId: string) {
   }
 }
 
-function pruneStaleStudentScheduleLessons(studentId: string) {
+function reconcileStudentScheduleLessons(studentId: string) {
   const student = db.select().from(s.students).where(eq(s.students.userId, studentId)).get();
   if (!student) return;
   const slots = (student.scheduleSlots as ScheduleSlot[] | null) || [];
@@ -282,12 +287,13 @@ function pruneStaleStudentScheduleLessons(studentId: string) {
   const toRemove = db
     .select()
     .from(s.lessons)
-    .where(and(eq(s.lessons.seriesId, seriesId), eq(s.lessons.status, "scheduled")))
+    .where(and(eq(s.lessons.seriesId, seriesId), eq(s.lessons.status, "scheduled"), eq(s.lessons.overrideType, "none")))
     .all()
-    .filter((l) => l.startAt >= nowIso)
+    .filter((l) => (l.plannedStart ?? l.startAt) >= nowIso)
     .filter((l) => {
-      const weekday = (new Date(l.startAt).getDay() + 6) % 7;
-      return slotsByDay.get(weekday) !== l.startAt.slice(11, 16);
+      const plannedStart = l.plannedStart ?? l.startAt;
+      const weekday = (new Date(plannedStart).getDay() + 6) % 7;
+      return slotsByDay.get(weekday) !== plannedStart.slice(11, 16);
     })
     .map((l) => l.id);
   if (toRemove.length) {
@@ -296,6 +302,7 @@ function pruneStaleStudentScheduleLessons(studentId: string) {
   }
 }
 
+// Individual schedule deactivated or ended early: same cancel-not-delete treatment as groups.
 function enforceStudentLessonLifecycle(studentId: string) {
   const student = db.select().from(s.students).where(eq(s.students.userId, studentId)).get();
   if (!student) return;
@@ -305,16 +312,15 @@ function enforceStudentLessonLifecycle(studentId: string) {
   else if (student.scheduleEndDate) cutoff = `${student.scheduleEndDate}T23:59`;
   if (!cutoff) return;
 
-  const toRemove = db
+  const toCancel = db
     .select()
     .from(s.lessons)
     .where(and(eq(s.lessons.studentId, studentId), isNull(s.lessons.groupId), eq(s.lessons.status, "scheduled")))
     .all()
     .filter((l) => l.startAt >= cutoff!)
     .map((l) => l.id);
-  if (toRemove.length) {
-    db.delete(s.lessonAttendance).where(inArray(s.lessonAttendance.lessonId, toRemove)).run();
-    db.delete(s.lessons).where(inArray(s.lessons.id, toRemove)).run();
+  if (toCancel.length) {
+    db.update(s.lessons).set({ status: "cancelled", overrideType: "cancelled" }).where(inArray(s.lessons.id, toCancel)).run();
   }
 }
 
@@ -338,7 +344,7 @@ teacherRouter.patch("/groups/:id", (req: AuthedRequest, res) => {
   const patch = groupFieldsFromBody(req.body || {});
   db.update(s.groups).set(patch).where(eq(s.groups.id, groupId)).run();
   enforceGroupLifecycle(groupId);
-  if (patch.scheduleSlots !== undefined) pruneStaleGroupScheduleLessons(groupId);
+  if (patch.scheduleSlots !== undefined) reconcileGroupScheduleLessons(groupId);
   res.json({ ok: true });
 });
 
@@ -362,8 +368,10 @@ teacherRouter.post("/groups/:id/generate-lessons", (req: AuthedRequest, res) => 
   defaultHorizon.setDate(defaultHorizon.getDate() + 12 * 7);
   const until = group.endDate ? new Date(`${group.endDate}T00:00`) : defaultHorizon;
 
-  const existing = new Set(
-    db.select({ startAt: s.lessons.startAt }).from(s.lessons).where(eq(s.lessons.groupId, groupId)).all().map((l) => l.startAt),
+  const seriesId = `group-schedule:${groupId}`;
+  const existingPlanned = new Set(
+    db.select({ plannedStart: s.lessons.plannedStart, startAt: s.lessons.startAt }).from(s.lessons).where(eq(s.lessons.seriesId, seriesId)).all()
+      .map((l) => l.plannedStart ?? l.startAt),
   );
 
   const created: string[] = [];
@@ -372,14 +380,14 @@ teacherRouter.post("/groups/:id/generate-lessons", (req: AuthedRequest, res) => 
     const weekday = (cursor.getDay() + 6) % 7; // 0=Monday
     const time = slotsByDay.get(weekday);
     if (time) {
-      const startAt = `${cursor.toISOString().slice(0, 10)}T${time}`;
-      if (!existing.has(startAt)) {
+      const plannedStart = `${cursor.toISOString().slice(0, 10)}T${time}`;
+      if (!existingPlanned.has(plannedStart)) {
         const id = randomUUID();
         db.insert(s.lessons)
           .values({
-            id, teacherId, groupId, studentId: null, title: "", startAt,
+            id, teacherId, groupId, studentId: null, title: "", startAt: plannedStart, plannedStart, overrideType: "none",
             durationMinutes: 60, format: group.scheduleFormat, location: group.scheduleLocation || "",
-            status: "scheduled", seriesId: `group-schedule:${groupId}`, note: null, createdAt: new Date().toISOString(),
+            status: "scheduled", seriesId, note: null, createdAt: new Date().toISOString(),
           })
           .run();
         created.push(id);
@@ -616,7 +624,8 @@ function serializeLesson(lesson: typeof s.lessons.$inferSelect) {
   return {
     id: lesson.id, groupId: lesson.groupId, groupName: group?.name ?? null,
     studentId: lesson.studentId, studentName: student ? `${student.name} ${student.lastName}`.trim() : null,
-    title: lesson.title, startAt: lesson.startAt, durationMinutes: lesson.durationMinutes,
+    title: lesson.title, startAt: lesson.startAt, plannedStart: lesson.plannedStart, overrideType: lesson.overrideType,
+    durationMinutes: lesson.durationMinutes,
     format: lesson.format, location: lesson.location, status: lesson.status, seriesId: lesson.seriesId, note: lesson.note,
   };
 }
@@ -676,7 +685,7 @@ teacherRouter.post("/lessons", (req: AuthedRequest, res) => {
     db.insert(s.lessons)
       .values({
         id, teacherId, groupId: groupId || null, studentId: studentId || null,
-        title: title ? String(title).trim() : "", startAt: start,
+        title: title ? String(title).trim() : "", startAt: start, plannedStart: start, overrideType: "extra",
         durationMinutes: durationMinutes ? Number(durationMinutes) : 60,
         format: format === "online" ? "online" : "offline", location: location ? String(location).trim() : "",
         status: "scheduled", seriesId, note: null, createdAt: new Date().toISOString(),
@@ -704,36 +713,32 @@ teacherRouter.patch("/lessons/:id", (req: AuthedRequest, res) => {
   if (status !== undefined) patch.status = status;
   if (note !== undefined) patch.note = note && String(note).trim() ? String(note).trim() : null;
 
-  // Moving a single occurrence off its scheduled slot (e.g. via calendar drag-and-drop) detaches it
-  // from the group/student schedule template, so later schedule edits won't sweep it up as "stale".
-  if (startAt !== undefined && String(startAt) !== lesson.startAt && lesson.seriesId && scope !== "series") {
-    patch.seriesId = null;
-  }
-
   if (scope === "series" && lesson.seriesId && status === "cancelled") {
-    // Cancelling a whole series: past occurrences are kept and marked cancelled (for the record),
-    // future ones are removed outright so they don't clutter the calendar.
-    const nowIso = new Date().toISOString().slice(0, 16);
-    const seriesLessons = db
-      .select()
-      .from(s.lessons)
-      .where(and(eq(s.lessons.seriesId, lesson.seriesId), eq(s.lessons.teacherId, teacherId), eq(s.lessons.status, "scheduled")))
-      .all();
-    const toDelete = seriesLessons.filter((l) => l.startAt >= nowIso).map((l) => l.id);
-    const toCancel = seriesLessons.filter((l) => l.startAt < nowIso).map((l) => l.id);
-    if (toDelete.length) {
-      db.delete(s.lessonAttendance).where(inArray(s.lessonAttendance.lessonId, toDelete)).run();
-      db.delete(s.lessons).where(inArray(s.lessons.id, toDelete)).run();
-    }
-    if (toCancel.length) {
-      db.update(s.lessons).set({ status: "cancelled" }).where(inArray(s.lessons.id, toCancel)).run();
-    }
-  } else if (scope === "series" && lesson.seriesId) {
+    // Cancelling a whole series never deletes anything — every currently-scheduled occurrence
+    // (past not yet marked done, or future) is marked cancelled. The calendar decides whether to
+    // hide cancelled lessons from the grid views; the record itself is kept either way.
     db.update(s.lessons)
-      .set(patch)
+      .set({ status: "cancelled", overrideType: "cancelled" })
       .where(and(eq(s.lessons.seriesId, lesson.seriesId), eq(s.lessons.teacherId, teacherId), eq(s.lessons.status, "scheduled")))
       .run();
+  } else if (scope === "series" && lesson.seriesId) {
+    // Whole-series edits (e.g. default format) only touch occurrences nobody has manually
+    // customized yet — a moved/cancelled/extra/custom lesson always keeps its own values.
+    db.update(s.lessons)
+      .set(patch)
+      .where(and(eq(s.lessons.seriesId, lesson.seriesId), eq(s.lessons.teacherId, teacherId), eq(s.lessons.status, "scheduled"), eq(s.lessons.overrideType, "none")))
+      .run();
   } else {
+    // Single-occurrence edit: a real date/time change is a "move" (the schedule template is left
+    // alone, and the next regular occurrence still appears on schedule); any other manual edit
+    // that isn't a status change is a "custom" override. Cancelling never deletes the row.
+    if (status === "cancelled") {
+      patch.overrideType = "cancelled";
+    } else if (startAt !== undefined && String(startAt) !== lesson.startAt) {
+      if (lesson.overrideType === "none") patch.overrideType = "moved";
+    } else if (lesson.overrideType === "none" && (title !== undefined || durationMinutes !== undefined || format !== undefined || location !== undefined)) {
+      patch.overrideType = "custom";
+    }
     db.update(s.lessons).set(patch).where(eq(s.lessons.id, lessonId)).run();
   }
   res.json({ ok: true });
@@ -744,8 +749,16 @@ teacherRouter.delete("/lessons/:id", (req: AuthedRequest, res) => {
   const lessonId = pstr(req.params.id);
   const lesson = db.select().from(s.lessons).where(and(eq(s.lessons.id, lessonId), eq(s.lessons.teacherId, teacherId))).get();
   if (!lesson) return res.status(404).json({ error: "Занятие не найдено" });
-  db.delete(s.lessonAttendance).where(eq(s.lessonAttendance.lessonId, lessonId)).run();
-  db.delete(s.lessons).where(eq(s.lessons.id, lessonId)).run();
+  const fromSchedule = lesson.seriesId?.startsWith("group-schedule:") || lesson.seriesId?.startsWith("student-schedule:");
+  if (fromSchedule) {
+    // Occurrences generated from a group/student schedule are never hard-deleted: the generator
+    // matches on plannedStart, so a physically removed row would just reappear next regeneration.
+    // "Delete" here means cancel — the calendar hides cancelled lessons from the grid views.
+    db.update(s.lessons).set({ status: "cancelled", overrideType: "cancelled" }).where(eq(s.lessons.id, lessonId)).run();
+  } else {
+    db.delete(s.lessonAttendance).where(eq(s.lessonAttendance.lessonId, lessonId)).run();
+    db.delete(s.lessons).where(eq(s.lessons.id, lessonId)).run();
+  }
   res.json({ ok: true });
 });
 
@@ -963,7 +976,7 @@ teacherRouter.patch("/students/:id", (req: AuthedRequest, res) => {
 
   if (Object.keys(patch).length) db.update(s.students).set(patch).where(eq(s.students.userId, studentId)).run();
   enforceStudentLessonLifecycle(studentId);
-  if (scheduleSlots !== undefined) pruneStaleStudentScheduleLessons(studentId);
+  if (scheduleSlots !== undefined) reconcileStudentScheduleLessons(studentId);
   res.json({ ok: true });
 });
 
@@ -988,8 +1001,10 @@ teacherRouter.post("/students/:id/generate-lessons", (req: AuthedRequest, res) =
   defaultHorizon.setDate(defaultHorizon.getDate() + 12 * 7);
   const until = student.scheduleEndDate ? new Date(`${student.scheduleEndDate}T00:00`) : defaultHorizon;
 
-  const existing = new Set(
-    db.select({ startAt: s.lessons.startAt }).from(s.lessons).where(and(eq(s.lessons.studentId, studentId), isNull(s.lessons.groupId))).all().map((l) => l.startAt),
+  const seriesId = `student-schedule:${studentId}`;
+  const existingPlanned = new Set(
+    db.select({ plannedStart: s.lessons.plannedStart, startAt: s.lessons.startAt }).from(s.lessons).where(eq(s.lessons.seriesId, seriesId)).all()
+      .map((l) => l.plannedStart ?? l.startAt),
   );
 
   const created: string[] = [];
@@ -998,14 +1013,14 @@ teacherRouter.post("/students/:id/generate-lessons", (req: AuthedRequest, res) =
     const weekday = (cursor.getDay() + 6) % 7;
     const time = slotsByDay.get(weekday);
     if (time) {
-      const startAt = `${cursor.toISOString().slice(0, 10)}T${time}`;
-      if (!existing.has(startAt)) {
+      const plannedStart = `${cursor.toISOString().slice(0, 10)}T${time}`;
+      if (!existingPlanned.has(plannedStart)) {
         const id = randomUUID();
         db.insert(s.lessons)
           .values({
-            id, teacherId, groupId: null, studentId, title: "", startAt,
+            id, teacherId, groupId: null, studentId, title: "", startAt: plannedStart, plannedStart, overrideType: "none",
             durationMinutes: 60, format: student.scheduleFormat, location: student.scheduleLocation || "",
-            status: "scheduled", seriesId: `student-schedule:${studentId}`, note: null, createdAt: new Date().toISOString(),
+            status: "scheduled", seriesId, note: null, createdAt: new Date().toISOString(),
           })
           .run();
         created.push(id);
