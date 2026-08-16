@@ -176,7 +176,8 @@ teacherRouter.get("/groups/:id", (req: AuthedRequest, res) => {
 
   res.json({
     id: group.id, name: group.name, subjectId: group.subjectId, grade: group.grade, description: group.description,
-    direction: group.direction, goal: group.goal, scheduleNote: group.scheduleNote, startDate: group.startDate,
+    direction: group.direction, goal: group.goal, scheduleNote: group.scheduleNote,
+    scheduleDays: group.scheduleDays, scheduleTime: group.scheduleTime, startDate: group.startDate,
     color: group.color, maxStudents: group.maxStudents, hwDefaults: group.hwDefaults,
     students, avgScore, weakTopics, homeworkStats, upcomingLessons, recentLessons,
   });
@@ -191,6 +192,8 @@ function groupFieldsFromBody(body: any) {
   if (body.direction !== undefined) patch.direction = body.direction || null;
   if (body.goal !== undefined) patch.goal = body.goal && String(body.goal).trim() ? String(body.goal).trim() : null;
   if (body.scheduleNote !== undefined) patch.scheduleNote = body.scheduleNote && String(body.scheduleNote).trim() ? String(body.scheduleNote).trim() : null;
+  if (body.scheduleDays !== undefined) patch.scheduleDays = Array.isArray(body.scheduleDays) && body.scheduleDays.length ? body.scheduleDays.map(Number) : null;
+  if (body.scheduleTime !== undefined) patch.scheduleTime = body.scheduleTime || null;
   if (body.startDate !== undefined) patch.startDate = body.startDate || null;
   if (body.color !== undefined) patch.color = body.color || null;
   if (body.maxStudents !== undefined) patch.maxStudents = body.maxStudents === null || body.maxStudents === "" ? null : Number(body.maxStudents);
@@ -217,6 +220,27 @@ teacherRouter.patch("/groups/:id", (req: AuthedRequest, res) => {
   if (!group) return res.status(404).json({ error: "Группа не найдена" });
   const patch = groupFieldsFromBody(req.body || {});
   db.update(s.groups).set(patch).where(eq(s.groups.id, groupId)).run();
+  res.json({ ok: true });
+});
+
+teacherRouter.delete("/groups/:id", (req: AuthedRequest, res) => {
+  const teacherId = req.auth!.sub;
+  const groupId = pstr(req.params.id);
+  const group = db.select().from(s.groups).where(and(eq(s.groups.id, groupId), eq(s.groups.teacherId, teacherId))).get();
+  if (!group) return res.status(404).json({ error: "Группа не найдена" });
+
+  db.transaction((tx) => {
+    const lessonIds = tx.select({ id: s.lessons.id }).from(s.lessons).where(eq(s.lessons.groupId, groupId)).all().map((l) => l.id);
+    if (lessonIds.length) {
+      tx.delete(s.lessonAttendance).where(inArray(s.lessonAttendance.lessonId, lessonIds)).run();
+      tx.delete(s.lessons).where(eq(s.lessons.groupId, groupId)).run();
+    }
+    tx.delete(s.materials).where(eq(s.materials.groupId, groupId)).run();
+    tx.delete(s.studentInvites).where(eq(s.studentInvites.groupId, groupId)).run();
+    tx.delete(s.groupMembers).where(eq(s.groupMembers.groupId, groupId)).run();
+    tx.delete(s.groups).where(eq(s.groups.id, groupId)).run();
+  });
+
   res.json({ ok: true });
 });
 
@@ -650,13 +674,52 @@ teacherRouter.patch("/students/:id", (req: AuthedRequest, res) => {
   const studentId = pstr(req.params.id);
   if (!teacherStudentIds(teacherId).includes(studentId)) return res.status(404).json({ error: "Ученик не найден" });
 
-  const { grade, goalScore, note } = req.body || {};
+  const { name, lastName, grade, goalScore, note } = req.body || {};
+  if (name !== undefined || lastName !== undefined) {
+    const userPatch: Partial<typeof s.users.$inferInsert> = {};
+    if (name !== undefined && String(name).trim()) userPatch.name = String(name).trim();
+    if (lastName !== undefined) userPatch.lastName = String(lastName).trim();
+    db.update(s.users).set(userPatch).where(eq(s.users.id, studentId)).run();
+  }
+
   const patch: Partial<typeof s.students.$inferInsert> = {};
   if (grade !== undefined) patch.grade = Number(grade);
   if (goalScore !== undefined) patch.goalScore = Number(goalScore);
   if (note !== undefined) patch.note = note && String(note).trim() ? String(note).trim() : null;
 
   db.update(s.students).set(patch).where(eq(s.students.userId, studentId)).run();
+  res.json({ ok: true });
+});
+
+teacherRouter.delete("/students/:id", (req: AuthedRequest, res) => {
+  const teacherId = req.auth!.sub;
+  const studentId = pstr(req.params.id);
+  if (!teacherStudentIds(teacherId).includes(studentId)) return res.status(404).json({ error: "Ученик не найден" });
+
+  db.transaction((tx) => {
+    const individualLessonIds = tx.select({ id: s.lessons.id }).from(s.lessons).where(eq(s.lessons.studentId, studentId)).all().map((l) => l.id);
+    tx.delete(s.lessonAttendance).where(eq(s.lessonAttendance.studentId, studentId)).run();
+    if (individualLessonIds.length) tx.delete(s.lessons).where(inArray(s.lessons.id, individualLessonIds)).run();
+    tx.delete(s.groupMembers).where(eq(s.groupMembers.studentUserId, studentId)).run();
+    tx.delete(s.studentInvites).where(eq(s.studentInvites.acceptedUserId, studentId)).run();
+    tx.delete(s.homeworkState).where(eq(s.homeworkState.studentId, studentId)).run();
+    tx.delete(s.homeworkAttempts).where(eq(s.homeworkAttempts.studentId, studentId)).run();
+    tx.delete(s.attachments).where(eq(s.attachments.studentId, studentId)).run();
+    tx.delete(s.teacherFeedback).where(eq(s.teacherFeedback.studentId, studentId)).run();
+    tx.delete(s.ctSessions).where(eq(s.ctSessions.studentId, studentId)).run();
+    tx.delete(s.ctResults).where(eq(s.ctResults.studentId, studentId)).run();
+    tx.delete(s.theoryProgress).where(eq(s.theoryProgress.studentId, studentId)).run();
+    tx.delete(s.techniqueProgress).where(eq(s.techniqueProgress.studentId, studentId)).run();
+    tx.delete(s.reviewCards).where(eq(s.reviewCards.studentId, studentId)).run();
+    tx.delete(s.gameRecords).where(eq(s.gameRecords.studentId, studentId)).run();
+    tx.delete(s.parentLinks).where(eq(s.parentLinks.studentUserId, studentId)).run();
+    tx.delete(s.notifications).where(eq(s.notifications.userId, studentId)).run();
+    tx.delete(s.settings).where(eq(s.settings.userId, studentId)).run();
+    tx.delete(s.passwordResets).where(eq(s.passwordResets.userId, studentId)).run();
+    tx.delete(s.students).where(eq(s.students.userId, studentId)).run();
+    tx.delete(s.users).where(eq(s.users.id, studentId)).run();
+  });
+
   res.json({ ok: true });
 });
 

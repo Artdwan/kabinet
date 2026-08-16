@@ -50,6 +50,8 @@ export const groups = sqliteTable("groups", {
   direction: text("direction", { enum: ["ct", "school", "improvement"] }),
   goal: text("goal"),
   scheduleNote: text("schedule_note"),
+  scheduleDays: text("schedule_days", { mode: "json" }), // number[], 0=Monday..6=Sunday
+  scheduleTime: text("schedule_time"), // "17:00"
   startDate: text("start_date"),
   color: text("color"),
   maxStudents: integer("max_students"),

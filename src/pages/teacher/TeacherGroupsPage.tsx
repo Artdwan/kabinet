@@ -22,7 +22,8 @@ interface GroupRow {
   description: string | null;
   direction: "ct" | "school" | "improvement" | null;
   goal: string | null;
-  scheduleNote: string | null;
+  scheduleDays: number[] | null;
+  scheduleTime: string | null;
   startDate: string | null;
   color: string | null;
   maxStudents: number | null;
@@ -47,6 +48,15 @@ const DEFAULT_HW: HwDefaults = { dueDays: "7", hintsAllowed: true, showSolutions
 
 const DIRECTION_LABEL: Record<string, string> = { ct: "Подготовка к ЦТ", school: "Школьная программа", improvement: "Повышение успеваемости" };
 
+const WEEKDAYS_SHORT = ["Пн", "Вт", "Ср", "Чт", "Пт", "Сб", "Вс"];
+
+function scheduleSummary(days: number[] | null, time: string | null): string | null {
+  if (!days || !days.length) return null;
+  const sorted = [...days].sort((a, b) => a - b);
+  const label = sorted.map((d) => WEEKDAYS_SHORT[d]).join(", ");
+  return time ? `${label} · ${time}` : label;
+}
+
 interface GroupFormState {
   name: string;
   subjectId: string;
@@ -54,7 +64,8 @@ interface GroupFormState {
   description: string;
   direction: string;
   goal: string;
-  scheduleNote: string;
+  scheduleDays: number[];
+  scheduleTime: string;
   startDate: string;
   color: string;
   maxStudents: string;
@@ -62,7 +73,7 @@ interface GroupFormState {
 }
 
 function emptyForm(): GroupFormState {
-  return { name: "", subjectId: SUBJECTS[0]?.id ?? "", grade: "", description: "", direction: "", goal: "", scheduleNote: "", startDate: "", color: "#e1ad66", maxStudents: "", hw: { ...DEFAULT_HW } };
+  return { name: "", subjectId: SUBJECTS[0]?.id ?? "", grade: "", description: "", direction: "", goal: "", scheduleDays: [], scheduleTime: "17:00", startDate: "", color: "#e1ad66", maxStudents: "", hw: { ...DEFAULT_HW } };
 }
 
 function formFromGroup(g: GroupRow): GroupFormState {
@@ -75,7 +86,7 @@ function formFromGroup(g: GroupRow): GroupFormState {
   }
   return {
     name: g.name, subjectId: g.subjectId, grade: g.grade ? String(g.grade) : "", description: g.description || "",
-    direction: g.direction || "", goal: g.goal || "", scheduleNote: g.scheduleNote || "", startDate: g.startDate || "",
+    direction: g.direction || "", goal: g.goal || "", scheduleDays: g.scheduleDays || [], scheduleTime: g.scheduleTime || "17:00", startDate: g.startDate || "",
     color: g.color || "#e1ad66", maxStudents: g.maxStudents ? String(g.maxStudents) : "", hw,
   };
 }
@@ -138,7 +149,8 @@ export function TeacherGroupsPage() {
         description: form.description.trim() || null,
         direction: form.direction || null,
         goal: form.goal.trim() || null,
-        scheduleNote: form.scheduleNote.trim() || null,
+        scheduleDays: form.scheduleDays,
+        scheduleTime: form.scheduleDays.length ? form.scheduleTime : null,
         startDate: form.startDate || null,
         color: form.color || null,
         maxStudents: form.maxStudents.trim() ? Number(form.maxStudents) : null,
@@ -161,6 +173,26 @@ export function TeacherGroupsPage() {
       reloadGroups();
     } catch (e) {
       show(e instanceof ApiError ? e.message : "Не удалось сохранить группу", "bad");
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const toggleScheduleDay = (day: number) => {
+    setForm((f) => ({ ...f, scheduleDays: f.scheduleDays.includes(day) ? f.scheduleDays.filter((d) => d !== day) : [...f.scheduleDays, day].sort((a, b) => a - b) }));
+  };
+
+  const deleteGroup = async () => {
+    if (!editingId) return;
+    if (!window.confirm("Удалить группу? Занятия и материалы этой группы будут удалены. Сами ученики останутся в системе.")) return;
+    setSaving(true);
+    try {
+      await api.del(`/teacher/groups/${editingId}`);
+      show("Группа удалена", "ok");
+      setFormOpen(false);
+      reloadGroups();
+    } catch (e) {
+      show(e instanceof ApiError ? e.message : "Не удалось удалить группу", "bad");
     } finally {
       setSaving(false);
     }
@@ -283,6 +315,7 @@ export function TeacherGroupsPage() {
                 {g.name}{g.grade ? ` · ${g.grade} класс` : ""}
               </Link>
               <div className="card-meta">{subjectName(g.subjectId)} · {g.studentIds.length} человек{g.direction ? ` · ${DIRECTION_LABEL[g.direction]}` : ""}</div>
+              {scheduleSummary(g.scheduleDays, g.scheduleTime) && <div className="card-meta">Расписание: {scheduleSummary(g.scheduleDays, g.scheduleTime)}</div>}
 
               <div style={{ display: "flex", flexDirection: "column", gap: 3, marginTop: 8, fontSize: 12.5 }}>
                 <div>{g.nextLesson ? `Ближайшее занятие: ${fmtDate(g.nextLesson.startAt.slice(0, 10))} · ${g.nextLesson.startAt.slice(11, 16)}` : "Занятий не запланировано"}</div>
@@ -310,6 +343,7 @@ export function TeacherGroupsPage() {
           onClose={() => setFormOpen(false)}
           actions={
             <>
+              {editingId && <button type="button" className="btn btn-ghost" style={{ color: "var(--color-bad)", marginRight: "auto" }} disabled={saving} onClick={deleteGroup}>Удалить группу</button>}
               <button type="button" className="btn btn-secondary" onClick={() => setFormOpen(false)}>Закрыть</button>
               <button type="button" className="btn btn-primary" disabled={!form.name.trim() || !form.subjectId || saving} onClick={saveGroup}>
                 {editingId ? "Сохранить" : "Создать"}
@@ -353,16 +387,38 @@ export function TeacherGroupsPage() {
               <label>Цель группы (необязательно)</label>
               <input className="input" value={form.goal} onChange={(e) => setForm((f) => ({ ...f, goal: e.target.value }))} placeholder="Например, средний балл 80+" />
             </div>
-            <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
-              <div className="field" style={{ flex: 1, minWidth: 180 }}>
-                <label>Расписание (необязательно)</label>
-                <input className="input" value={form.scheduleNote} onChange={(e) => setForm((f) => ({ ...f, scheduleNote: e.target.value }))} placeholder="Пн, Ср 17:00" />
+            <div className="field">
+              <label>Расписание (необязательно)</label>
+              <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
+                {WEEKDAYS_SHORT.map((label, day) => (
+                  <button
+                    key={day}
+                    type="button"
+                    className="btn btn-sm"
+                    style={form.scheduleDays.includes(day)
+                      ? { color: "var(--color-accent)", background: "var(--color-accent-100)", border: "1px solid var(--color-accent)" }
+                      : { background: "var(--color-surface-2)", border: "1px solid var(--color-line)" }}
+                    onClick={() => toggleScheduleDay(day)}
+                  >
+                    {label}
+                  </button>
+                ))}
+                <input
+                  className="input"
+                  type="time"
+                  style={{ maxWidth: 110 }}
+                  value={form.scheduleTime}
+                  onChange={(e) => setForm((f) => ({ ...f, scheduleTime: e.target.value }))}
+                  disabled={form.scheduleDays.length === 0}
+                />
               </div>
-              <div className="field" style={{ minWidth: 160 }}>
+            </div>
+            <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
+              <div className="field" style={{ flex: 1, minWidth: 160 }}>
                 <label>Дата начала обучения</label>
                 <input className="input" type="date" value={form.startDate} onChange={(e) => setForm((f) => ({ ...f, startDate: e.target.value }))} />
               </div>
-              <div className="field" style={{ minWidth: 140 }}>
+              <div className="field" style={{ flex: 1, minWidth: 140 }}>
                 <label>Макс. учеников</label>
                 <input className="input" type="number" min={1} value={form.maxStudents} onChange={(e) => setForm((f) => ({ ...f, maxStudents: e.target.value }))} placeholder="12" />
               </div>
