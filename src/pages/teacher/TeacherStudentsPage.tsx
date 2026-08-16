@@ -6,6 +6,14 @@ import { fmtDate } from "../../services/mockApi";
 import { api, ApiError } from "../../services/apiClient";
 import { useToast } from "../../services/ToastContext";
 import { Modal } from "../../components/Modal";
+import { SUBJECTS } from "../../data/content";
+
+interface ScheduleSlot {
+  day: number;
+  time: string;
+}
+
+const WEEKDAYS_SHORT = ["Пн", "Вт", "Ср", "Чт", "Пт", "Сб", "Вс"];
 
 interface RosterRow {
   id: string;
@@ -43,8 +51,8 @@ interface PendingInvite {
   lastName: string;
   grade: number | null;
   goalScore: number | null;
-  groupId: string | null;
-  groupName: string | null;
+  groupIds: string[];
+  groupNames: string[];
   createdAt: string;
 }
 
@@ -72,14 +80,23 @@ export function TeacherStudentsPage() {
   const [newStudentName, setNewStudentName] = useState("");
   const [newStudentLastName, setNewStudentLastName] = useState("");
   const [newStudentEmail, setNewStudentEmail] = useState("");
-  const [newStudentGroup, setNewStudentGroup] = useState("");
+  const [newStudentGroupIds, setNewStudentGroupIds] = useState<string[]>([]);
   const [newStudentGrade, setNewStudentGrade] = useState("11");
+  const [newStudentDirection, setNewStudentDirection] = useState<"ct" | "school">("ct");
   const [newStudentStartScore, setNewStudentStartScore] = useState("");
   const [newStudentGoal, setNewStudentGoal] = useState("85");
   const [newStudentStartGrade, setNewStudentStartGrade] = useState("");
   const [newStudentGoalGrade, setNewStudentGoalGrade] = useState("");
   const [newStudentNote, setNewStudentNote] = useState("");
   const [creatingStudent, setCreatingStudent] = useState(false);
+
+  const [indivScheduleEnabled, setIndivScheduleEnabled] = useState(false);
+  const [indivSubjectId, setIndivSubjectId] = useState("");
+  const [indivSlots, setIndivSlots] = useState<ScheduleSlot[]>([]);
+  const [indivFormat, setIndivFormat] = useState<"offline" | "online">("offline");
+  const [indivLocation, setIndivLocation] = useState("");
+  const [indivStartDate, setIndivStartDate] = useState("");
+  const [indivEndDate, setIndivEndDate] = useState("");
   const [createdStudent, setCreatedStudent] = useState<CreatedStudent | null>(null);
   const [createdInviteLink, setCreatedInviteLink] = useState<string | null>(null);
   const [copiedField, setCopiedField] = useState<string | null>(null);
@@ -117,20 +134,39 @@ export function TeacherStudentsPage() {
     }
   };
 
-  const selectedGroupDirection = groups.find((g) => g.id === newStudentGroup)?.direction ?? null;
-  const isGradeMode = selectedGroupDirection === "school" || selectedGroupDirection === "improvement";
+  const isGradeMode = newStudentDirection === "school";
+
+  const toggleNewStudentGroup = (id: string) => setNewStudentGroupIds((prev) => (prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]));
+
+  const toggleIndivSlotDay = (day: number) => {
+    setIndivSlots((prev) => {
+      const has = prev.some((s) => s.day === day);
+      return has ? prev.filter((s) => s.day !== day) : [...prev, { day, time: "17:00" }].sort((a, b) => a.day - b.day);
+    });
+  };
+  const setIndivSlotTime = (day: number, time: string) => {
+    setIndivSlots((prev) => prev.map((s) => (s.day === day ? { ...s, time } : s)));
+  };
 
   const resetForm = () => {
     setNewStudentName("");
     setNewStudentLastName("");
     setNewStudentEmail("");
-    setNewStudentGroup("");
+    setNewStudentGroupIds([]);
     setNewStudentGrade("11");
+    setNewStudentDirection("ct");
     setNewStudentStartScore("");
     setNewStudentGoal("85");
     setNewStudentStartGrade("");
     setNewStudentGoalGrade("");
     setNewStudentNote("");
+    setIndivScheduleEnabled(false);
+    setIndivSubjectId("");
+    setIndivSlots([]);
+    setIndivFormat("offline");
+    setIndivLocation("");
+    setIndivStartDate("");
+    setIndivEndDate("");
   };
 
   const createStudent = async () => {
@@ -140,14 +176,25 @@ export function TeacherStudentsPage() {
     const scoreFields = isGradeMode
       ? { startGrade: newStudentStartGrade || undefined, goalGrade: newStudentGoalGrade || undefined }
       : { startScore: newStudentStartScore || undefined, goalScore: newStudentGoal || undefined };
+    const scheduleFields = indivScheduleEnabled
+      ? {
+          scheduleSubjectId: indivSubjectId || undefined,
+          scheduleSlots: indivSlots,
+          scheduleFormat: indivFormat,
+          scheduleLocation: indivLocation.trim() || undefined,
+          scheduleStartDate: indivStartDate || undefined,
+          scheduleEndDate: indivEndDate || undefined,
+        }
+      : {};
     try {
       if (addMode === "invite") {
         const { token } = await api.post<{ token: string }>("/teacher/student-invites", {
           name: newStudentName.trim(),
           lastName: newStudentLastName.trim(),
-          groupId: newStudentGroup || undefined,
+          groupIds: newStudentGroupIds,
           grade: newStudentGrade || undefined,
           ...scoreFields,
+          ...scheduleFields,
           note: newStudentNote.trim() || undefined,
         });
         setCreatedInviteLink(`${window.location.origin}/invite/${token}`);
@@ -158,9 +205,10 @@ export function TeacherStudentsPage() {
           name: newStudentName.trim(),
           lastName: newStudentLastName.trim(),
           email: newStudentEmail.trim(),
-          groupId: newStudentGroup || undefined,
+          groupIds: newStudentGroupIds,
           grade: newStudentGrade || undefined,
           ...scoreFields,
+          ...scheduleFields,
           note: newStudentNote.trim() || undefined,
         });
         setCreatedStudent(created);
@@ -251,7 +299,7 @@ export function TeacherStudentsPage() {
               <div key={inv.token} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
                 <div style={{ fontSize: 13.5 }}>
                   {inv.name} {inv.lastName}
-                  {inv.groupName && <span className="card-meta"> · {inv.groupName}</span>}
+                  {inv.groupNames.length > 0 && <span className="card-meta"> · {inv.groupNames.join(", ")}</span>}
                 </div>
                 <div style={{ display: "flex", gap: 6 }}>
                   <span className="tag tag-accent">Ожидает регистрации</span>
@@ -380,14 +428,24 @@ export function TeacherStudentsPage() {
                 <label>Класс</label>
                 <input className="input" type="number" min={1} max={11} value={newStudentGrade} onChange={(e) => setNewStudentGrade(e.target.value)} />
               </div>
-              <div className="field" style={{ flex: 1, minWidth: 160 }}>
-                <label>Группа (необязательно)</label>
-                <select className="input" value={newStudentGroup} onChange={(e) => setNewStudentGroup(e.target.value)}>
-                  <option value="">Без группы</option>
-                  {groups.map((g) => (
-                    <option key={g.id} value={g.id}>{g.name}</option>
-                  ))}
+              <div className="field" style={{ flex: 1, minWidth: 200 }}>
+                <label>Направление</label>
+                <select className="input" value={newStudentDirection} onChange={(e) => setNewStudentDirection(e.target.value as "ct" | "school")}>
+                  <option value="ct">Подготовка к ЦТ</option>
+                  <option value="school">Школьная программа</option>
                 </select>
+              </div>
+            </div>
+            <div className="field">
+              <label>Группы (необязательно, можно выбрать несколько)</label>
+              <div style={{ display: "flex", flexDirection: "column", gap: 4, maxHeight: 140, overflowY: "auto", border: "1px solid var(--color-line)", borderRadius: "var(--radius-sm)", padding: 8 }}>
+                {groups.length === 0 && <div className="card-meta">Групп пока нет.</div>}
+                {groups.map((g) => (
+                  <label key={g.id} style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 13.5, cursor: "pointer" }}>
+                    <input type="checkbox" checked={newStudentGroupIds.includes(g.id)} onChange={() => toggleNewStudentGroup(g.id)} />
+                    {g.name}
+                  </label>
+                ))}
               </div>
             </div>
             {isGradeMode ? (
@@ -417,6 +475,74 @@ export function TeacherStudentsPage() {
               <label>Заметка преподавателя (необязательно)</label>
               <input className="input" value={newStudentNote} onChange={(e) => setNewStudentNote(e.target.value)} placeholder="Например, приходит по вечерам, слабая алгебра" />
             </div>
+
+            <label style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 13.5 }}>
+              <input type="checkbox" checked={indivScheduleEnabled} onChange={(e) => setIndivScheduleEnabled(e.target.checked)} />
+              Сразу настроить индивидуальные занятия
+            </label>
+            {indivScheduleEnabled && (
+              <div style={{ display: "flex", flexDirection: "column", gap: 12, padding: 12, border: "1px solid var(--color-line)", borderRadius: "var(--radius-sm)" }}>
+                <div className="field">
+                  <label>Предмет</label>
+                  <select className="input" value={indivSubjectId} onChange={(e) => setIndivSubjectId(e.target.value)}>
+                    <option value="">Не указан</option>
+                    {SUBJECTS.map((sub) => <option key={sub.id} value={sub.id}>{sub.name}</option>)}
+                  </select>
+                </div>
+                <div className="field">
+                  <label>Расписание</label>
+                  <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
+                    {WEEKDAYS_SHORT.map((label, day) => (
+                      <button
+                        key={day}
+                        type="button"
+                        className="btn btn-sm"
+                        style={indivSlots.some((sl) => sl.day === day)
+                          ? { color: "var(--color-accent)", background: "var(--color-accent-100)", border: "1px solid var(--color-accent)" }
+                          : { background: "var(--color-surface-2)", border: "1px solid var(--color-line)" }}
+                        onClick={() => toggleIndivSlotDay(day)}
+                      >
+                        {label}
+                      </button>
+                    ))}
+                  </div>
+                  {indivSlots.length > 0 && (
+                    <div style={{ display: "flex", flexDirection: "column", gap: 6, marginTop: 8 }}>
+                      {[...indivSlots].sort((a, b) => a.day - b.day).map((slot) => (
+                        <div key={slot.day} style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                          <span style={{ fontSize: 13.5, minWidth: 32 }}>{WEEKDAYS_SHORT[slot.day]}</span>
+                          <input className="input" type="time" style={{ maxWidth: 110 }} value={slot.time} onChange={(e) => setIndivSlotTime(slot.day, e.target.value)} />
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+                <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
+                  <div className="field" style={{ minWidth: 140 }}>
+                    <label>Формат</label>
+                    <select className="input" value={indivFormat} onChange={(e) => setIndivFormat(e.target.value as "offline" | "online")}>
+                      <option value="offline">Очно</option>
+                      <option value="online">Онлайн</option>
+                    </select>
+                  </div>
+                  <div className="field" style={{ flex: 1, minWidth: 180 }}>
+                    <label>Место / ссылка</label>
+                    <input className="input" value={indivLocation} onChange={(e) => setIndivLocation(e.target.value)} placeholder="Кабинет 12 или ссылка на звонок" />
+                  </div>
+                </div>
+                <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
+                  <div className="field" style={{ flex: 1, minWidth: 160 }}>
+                    <label>Дата начала</label>
+                    <input className="input" type="date" value={indivStartDate} onChange={(e) => setIndivStartDate(e.target.value)} />
+                  </div>
+                  <div className="field" style={{ flex: 1, minWidth: 160 }}>
+                    <label>Дата окончания (необязательно)</label>
+                    <input className="input" type="date" value={indivEndDate} onChange={(e) => setIndivEndDate(e.target.value)} />
+                  </div>
+                </div>
+                <p className="card-meta" style={{ margin: 0 }}>После создания зайдите в Занятия → Индивидуальные → Настройки, чтобы внести занятия в календарь.</p>
+              </div>
+            )}
           </div>
         </Modal>
       )}

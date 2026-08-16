@@ -804,7 +804,6 @@ export function TeacherGroupsPage() {
                   <option value="">Не указано</option>
                   <option value="ct">Подготовка к ЦТ</option>
                   <option value="school">Школьная программа</option>
-                  <option value="improvement">Повышение успеваемости</option>
                 </select>
               </div>
             </div>

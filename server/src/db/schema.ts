@@ -85,7 +85,8 @@ export const groupMembers = sqliteTable(
 export const studentInvites = sqliteTable("student_invites", {
   token: text("token").primaryKey(),
   teacherId: text("teacher_id").notNull().references(() => users.id),
-  groupId: text("group_id").references(() => groups.id),
+  groupId: text("group_id").references(() => groups.id), // deprecated, superseded by groupIds
+  groupIds: text("group_ids", { mode: "json" }), // string[]
   name: text("name").notNull(),
   lastName: text("last_name").notNull().default(""),
   grade: integer("grade"),
@@ -94,6 +95,12 @@ export const studentInvites = sqliteTable("student_invites", {
   startGrade: integer("start_grade"),
   goalGrade: integer("goal_grade"),
   note: text("note"),
+  scheduleSubjectId: text("schedule_subject_id"),
+  scheduleSlots: text("schedule_slots", { mode: "json" }), // { day: number (0=Monday..6=Sunday), time: string ("HH:MM") }[]
+  scheduleStartDate: text("schedule_start_date"),
+  scheduleEndDate: text("schedule_end_date"),
+  scheduleFormat: text("schedule_format", { enum: ["offline", "online"] }).notNull().default("offline"),
+  scheduleLocation: text("schedule_location"),
   createdAt: text("created_at").notNull(),
   acceptedUserId: text("accepted_user_id").references(() => users.id),
   acceptedAt: text("accepted_at"),

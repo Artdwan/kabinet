@@ -92,6 +92,13 @@
       "when": 1786847140195,
       "tag": "0012_normal_colleen_wing",
       "breakpoints": true
+    },
+    {
+      "idx": 13,
+      "version": "6",
+      "when": 1786893729089,
+      "tag": "0013_previous_deathbird",
+      "breakpoints": true
     }
   ]
 }

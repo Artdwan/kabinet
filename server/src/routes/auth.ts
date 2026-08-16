@@ -17,11 +17,14 @@ authRouter.get("/student-invite/:token", (req, res) => {
   const invite = db.select().from(s.studentInvites).where(eq(s.studentInvites.token, String(req.params.token))).get();
   if (!invite || invite.acceptedUserId) return res.status(404).json({ error: "Приглашение не найдено или уже использовано" });
   const teacher = db.select().from(s.users).where(eq(s.users.id, invite.teacherId)).get();
-  const group = invite.groupId ? db.select().from(s.groups).where(eq(s.groups.id, invite.groupId)).get() : undefined;
+  const groupIds = (invite.groupIds as string[] | null) ?? (invite.groupId ? [invite.groupId] : []);
+  const groupNames = groupIds
+    .map((id) => db.select().from(s.groups).where(eq(s.groups.id, id)).get()?.name)
+    .filter((n): n is string => Boolean(n));
   res.json({
     name: invite.name, lastName: invite.lastName,
     teacherName: teacher ? `${teacher.name} ${teacher.lastName}`.trim() : "",
-    groupName: group?.name ?? null,
+    groupName: groupNames.join(", ") || null,
   });
 });
 
@@ -60,10 +63,17 @@ authRouter.post("/register", async (req, res) => {
         goalGrade: invite?.goalGrade ?? null,
         teacherId: invite?.teacherId ?? null,
         note: invite?.note ?? null,
+        scheduleSubjectId: invite?.scheduleSubjectId ?? null,
+        scheduleSlots: invite?.scheduleSlots ?? null,
+        scheduleStartDate: invite?.scheduleStartDate ?? null,
+        scheduleEndDate: invite?.scheduleEndDate ?? null,
+        scheduleFormat: invite?.scheduleFormat ?? "offline",
+        scheduleLocation: invite?.scheduleLocation ?? null,
       })
       .run();
     if (invite) {
-      if (invite.groupId) db.insert(s.groupMembers).values({ groupId: invite.groupId, studentUserId: id }).run();
+      const groupIds = (invite.groupIds as string[] | null) ?? (invite.groupId ? [invite.groupId] : []);
+      groupIds.forEach((groupId) => db.insert(s.groupMembers).values({ groupId, studentUserId: id }).run());
       db.update(s.studentInvites).set({ acceptedUserId: id, acceptedAt: new Date().toISOString() }).where(eq(s.studentInvites.token, invite.token)).run();
     }
   }

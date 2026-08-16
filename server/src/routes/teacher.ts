@@ -479,18 +479,21 @@ teacherRouter.delete("/materials/:id", (req: AuthedRequest, res) => {
 
 teacherRouter.post("/students", (req: AuthedRequest, res) => {
   const teacherId = req.auth!.sub;
-  const { name, lastName, email, groupId, grade, goalScore, startScore, startGrade, goalGrade, note } = req.body || {};
+  const {
+    name, lastName, email, groupId, groupIds, grade, goalScore, startScore, startGrade, goalGrade, note,
+    scheduleSubjectId, scheduleSlots, scheduleStartDate, scheduleEndDate, scheduleFormat, scheduleLocation,
+  } = req.body || {};
   if (!name || !String(name).trim()) return res.status(400).json({ error: "Укажите имя ученика" });
   if (!email || !String(email).includes("@")) return res.status(400).json({ error: "Введите корректный email" });
 
   const existing = db.select().from(s.users).where(eq(s.users.email, String(email).trim())).get();
   if (existing) return res.status(409).json({ error: "Такой email уже зарегистрирован" });
 
-  let group: typeof s.groups.$inferSelect | undefined;
-  if (groupId) {
-    group = db.select().from(s.groups).where(and(eq(s.groups.id, groupId), eq(s.groups.teacherId, teacherId))).get();
-    if (!group) return res.status(404).json({ error: "Группа не найдена" });
-  }
+  const requestedGroupIds: string[] = Array.isArray(groupIds) ? groupIds : groupId ? [groupId] : [];
+  const validGroups = requestedGroupIds.length
+    ? db.select().from(s.groups).where(and(inArray(s.groups.id, requestedGroupIds), eq(s.groups.teacherId, teacherId))).all()
+    : [];
+  if (validGroups.length !== requestedGroupIds.length) return res.status(404).json({ error: "Группа не найдена" });
 
   const id = randomUUID();
   const password = randomBytes(6).toString("base64url");
@@ -511,9 +514,15 @@ teacherRouter.post("/students", (req: AuthedRequest, res) => {
       goalGrade: goalGrade !== undefined && goalGrade !== "" ? Number(goalGrade) : null,
       teacherId,
       note: note && String(note).trim() ? String(note).trim() : null,
+      scheduleSubjectId: scheduleSubjectId || null,
+      scheduleSlots: normalizeScheduleSlots(scheduleSlots),
+      scheduleStartDate: scheduleStartDate || null,
+      scheduleEndDate: scheduleEndDate || null,
+      scheduleFormat: scheduleFormat === "online" ? "online" : "offline",
+      scheduleLocation: scheduleLocation && String(scheduleLocation).trim() ? String(scheduleLocation).trim() : null,
     })
     .run();
-  if (group) db.insert(s.groupMembers).values({ groupId: group.id, studentUserId: id }).run();
+  validGroups.forEach((group) => db.insert(s.groupMembers).values({ groupId: group.id, studentUserId: id }).run());
 
   res.json({ id, email: String(email).trim(), password, name: String(name).trim(), lastName: String(lastName || "").trim() });
 });
@@ -525,11 +534,14 @@ teacherRouter.get("/student-invites", (req: AuthedRequest, res) => {
     .filter((inv) => !inv.acceptedUserId)
     .sort((a, b) => b.createdAt.localeCompare(a.createdAt))
     .map((inv) => {
-      const group = inv.groupId ? db.select().from(s.groups).where(eq(s.groups.id, inv.groupId)).get() : undefined;
+      const groupIds = (inv.groupIds as string[] | null) ?? (inv.groupId ? [inv.groupId] : []);
+      const groupNames = groupIds
+        .map((id) => db.select().from(s.groups).where(eq(s.groups.id, id)).get()?.name)
+        .filter((n): n is string => Boolean(n));
       return {
         token: inv.token, name: inv.name, lastName: inv.lastName,
         grade: inv.grade, goalScore: inv.goalScore, note: inv.note,
-        groupId: inv.groupId, groupName: group?.name ?? null,
+        groupIds, groupNames,
         createdAt: inv.createdAt,
       };
     });
@@ -538,18 +550,22 @@ teacherRouter.get("/student-invites", (req: AuthedRequest, res) => {
 
 teacherRouter.post("/student-invites", (req: AuthedRequest, res) => {
   const teacherId = req.auth!.sub;
-  const { name, lastName, groupId, grade, goalScore, startScore, startGrade, goalGrade, note } = req.body || {};
+  const {
+    name, lastName, groupId, groupIds, grade, goalScore, startScore, startGrade, goalGrade, note,
+    scheduleSubjectId, scheduleSlots, scheduleStartDate, scheduleEndDate, scheduleFormat, scheduleLocation,
+  } = req.body || {};
   if (!name || !String(name).trim()) return res.status(400).json({ error: "Укажите имя ученика" });
 
-  if (groupId) {
-    const group = db.select().from(s.groups).where(and(eq(s.groups.id, groupId), eq(s.groups.teacherId, teacherId))).get();
-    if (!group) return res.status(404).json({ error: "Группа не найдена" });
-  }
+  const requestedGroupIds: string[] = Array.isArray(groupIds) ? groupIds : groupId ? [groupId] : [];
+  const validGroups = requestedGroupIds.length
+    ? db.select().from(s.groups).where(and(inArray(s.groups.id, requestedGroupIds), eq(s.groups.teacherId, teacherId))).all()
+    : [];
+  if (validGroups.length !== requestedGroupIds.length) return res.status(404).json({ error: "Группа не найдена" });
 
   const token = randomBytes(20).toString("base64url");
   db.insert(s.studentInvites)
     .values({
-      token, teacherId, groupId: groupId || null,
+      token, teacherId, groupId: requestedGroupIds[0] || null, groupIds: requestedGroupIds.length ? requestedGroupIds : null,
       name: String(name).trim(), lastName: String(lastName || "").trim(),
       grade: grade ? Number(grade) : null,
       goalScore: goalScore ? Number(goalScore) : null,
@@ -557,6 +573,12 @@ teacherRouter.post("/student-invites", (req: AuthedRequest, res) => {
       startGrade: startGrade !== undefined && startGrade !== "" ? Number(startGrade) : null,
       goalGrade: goalGrade !== undefined && goalGrade !== "" ? Number(goalGrade) : null,
       note: note && String(note).trim() ? String(note).trim() : null,
+      scheduleSubjectId: scheduleSubjectId || null,
+      scheduleSlots: normalizeScheduleSlots(scheduleSlots),
+      scheduleStartDate: scheduleStartDate || null,
+      scheduleEndDate: scheduleEndDate || null,
+      scheduleFormat: scheduleFormat === "online" ? "online" : "offline",
+      scheduleLocation: scheduleLocation && String(scheduleLocation).trim() ? String(scheduleLocation).trim() : null,
       createdAt: new Date().toISOString(),
     })
     .run();
