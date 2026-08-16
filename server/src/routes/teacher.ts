@@ -679,6 +679,12 @@ teacherRouter.patch("/lessons/:id", (req: AuthedRequest, res) => {
   if (status !== undefined) patch.status = status;
   if (note !== undefined) patch.note = note && String(note).trim() ? String(note).trim() : null;
 
+  // Moving a single occurrence off its scheduled slot (e.g. via calendar drag-and-drop) detaches it
+  // from the group/student schedule template, so later schedule edits won't sweep it up as "stale".
+  if (startAt !== undefined && String(startAt) !== lesson.startAt && lesson.seriesId && scope !== "series") {
+    patch.seriesId = null;
+  }
+
   if (scope === "series" && lesson.seriesId) {
     db.update(s.lessons)
       .set(patch)
