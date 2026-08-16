@@ -239,6 +239,60 @@ function enforceGroupLifecycle(groupId: string) {
   }
 }
 
+// Removes future auto-generated lessons that no longer match the group's current schedule slots
+// (e.g. a day was removed from the schedule after lessons for it were already generated).
+function pruneStaleGroupScheduleLessons(groupId: string) {
+  const group = db.select().from(s.groups).where(eq(s.groups.id, groupId)).get();
+  if (!group) return;
+  const slots = (group.scheduleSlots as ScheduleSlot[] | null) || [];
+  const slotsByDay = new Map<number, string>();
+  slots.forEach((slot) => slotsByDay.set(slot.day, slot.time));
+  const seriesId = `group-schedule:${groupId}`;
+  const nowIso = new Date().toISOString().slice(0, 16);
+
+  const toRemove = db
+    .select()
+    .from(s.lessons)
+    .where(and(eq(s.lessons.seriesId, seriesId), eq(s.lessons.status, "scheduled")))
+    .all()
+    .filter((l) => l.startAt >= nowIso)
+    .filter((l) => {
+      const weekday = (new Date(l.startAt).getDay() + 6) % 7;
+      return slotsByDay.get(weekday) !== l.startAt.slice(11, 16);
+    })
+    .map((l) => l.id);
+  if (toRemove.length) {
+    db.delete(s.lessonAttendance).where(inArray(s.lessonAttendance.lessonId, toRemove)).run();
+    db.delete(s.lessons).where(inArray(s.lessons.id, toRemove)).run();
+  }
+}
+
+function pruneStaleStudentScheduleLessons(studentId: string) {
+  const student = db.select().from(s.students).where(eq(s.students.userId, studentId)).get();
+  if (!student) return;
+  const slots = (student.scheduleSlots as ScheduleSlot[] | null) || [];
+  const slotsByDay = new Map<number, string>();
+  slots.forEach((slot) => slotsByDay.set(slot.day, slot.time));
+  const seriesId = `student-schedule:${studentId}`;
+  const nowIso = new Date().toISOString().slice(0, 16);
+
+  const toRemove = db
+    .select()
+    .from(s.lessons)
+    .where(and(eq(s.lessons.seriesId, seriesId), eq(s.lessons.status, "scheduled")))
+    .all()
+    .filter((l) => l.startAt >= nowIso)
+    .filter((l) => {
+      const weekday = (new Date(l.startAt).getDay() + 6) % 7;
+      return slotsByDay.get(weekday) !== l.startAt.slice(11, 16);
+    })
+    .map((l) => l.id);
+  if (toRemove.length) {
+    db.delete(s.lessonAttendance).where(inArray(s.lessonAttendance.lessonId, toRemove)).run();
+    db.delete(s.lessons).where(inArray(s.lessons.id, toRemove)).run();
+  }
+}
+
 function enforceStudentLessonLifecycle(studentId: string) {
   const student = db.select().from(s.students).where(eq(s.students.userId, studentId)).get();
   if (!student) return;
@@ -281,6 +335,7 @@ teacherRouter.patch("/groups/:id", (req: AuthedRequest, res) => {
   const patch = groupFieldsFromBody(req.body || {});
   db.update(s.groups).set(patch).where(eq(s.groups.id, groupId)).run();
   enforceGroupLifecycle(groupId);
+  if (patch.scheduleSlots !== undefined) pruneStaleGroupScheduleLessons(groupId);
   res.json({ ok: true });
 });
 
@@ -854,6 +909,7 @@ teacherRouter.patch("/students/:id", (req: AuthedRequest, res) => {
 
   if (Object.keys(patch).length) db.update(s.students).set(patch).where(eq(s.students.userId, studentId)).run();
   enforceStudentLessonLifecycle(studentId);
+  if (scheduleSlots !== undefined) pruneStaleStudentScheduleLessons(studentId);
   res.json({ ok: true });
 });
 
