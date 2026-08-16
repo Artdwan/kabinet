@@ -30,7 +30,7 @@ export function navForRole(role: Role, badges: { homework?: number; review?: num
     return [
       { to: "/teacher", label: "Обзор", shortLabel: "Обзор", icon: LayoutGrid },
       { to: "/teacher/calendar", label: "Календарь", shortLabel: "Календарь", icon: CalendarDays },
-      { to: "/teacher/groups", label: "Группы", shortLabel: "Группы", icon: UsersRound },
+      { to: "/teacher/groups", label: "Занятия", shortLabel: "Занятия", icon: UsersRound },
       { to: "/teacher/students", label: "Ученики", shortLabel: "Ученики", icon: Users },
       { to: "/teacher/review", label: "Проверка работ", shortLabel: "Проверка", icon: ClipboardCheck, badge: badges.review },
       { to: "/teacher/assign", label: "Материалы", shortLabel: "Материалы", icon: FolderOpen },

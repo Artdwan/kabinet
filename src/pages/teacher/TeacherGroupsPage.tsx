@@ -14,6 +14,23 @@ interface RosterRow {
   groupIds: string[];
 }
 
+interface IndividualRow {
+  id: string;
+  name: string;
+  avg: number;
+  goal: number;
+  risk: "ok" | "attention" | "risk";
+  lessonCount: number;
+  nextLesson: { id: string; startAt: string; title: string } | null;
+  lastLesson: { id: string; startAt: string; title: string } | null;
+}
+
+const RISK_LABEL: Record<string, { label: string; cls: string }> = {
+  ok: { label: "В норме", cls: "tag-ok" },
+  attention: { label: "Внимание", cls: "tag-accent" },
+  risk: { label: "Требует внимания", cls: "tag-bad" },
+};
+
 interface GroupRow {
   id: string;
   name: string;
@@ -95,12 +112,18 @@ export function TeacherGroupsPage() {
   const navigate = useNavigate();
   const { data: roster = [], reload: reloadRoster } = useApiData<RosterRow[]>("/teacher/roster");
   const { data: groups = [], reload: reloadGroups } = useApiData<GroupRow[]>("/teacher/groups");
+  const { data: individual = [], reload: reloadIndividual } = useApiData<IndividualRow[]>("/teacher/individual");
   const { show } = useToast();
 
+  const [section, setSection] = useState<"groups" | "individual">("groups");
   const [search, setSearch] = useState("");
   const [subjectFilter, setSubjectFilter] = useState("");
   const [gradeFilter, setGradeFilter] = useState("");
   const [statusFilter, setStatusFilter] = useState("");
+
+  const [selectedGroupIds, setSelectedGroupIds] = useState<string[]>([]);
+  const [selectedIndividualIds, setSelectedIndividualIds] = useState<string[]>([]);
+  const [bulkDeleting, setBulkDeleting] = useState(false);
 
   const [formOpen, setFormOpen] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
@@ -135,6 +158,45 @@ export function TeacherGroupsPage() {
     if (statusFilter === "attention" && g.attentionCount === 0) return false;
     return true;
   });
+
+  const individualRows = individual.filter((r) => !search.trim() || r.name.toLowerCase().includes(search.trim().toLowerCase()));
+
+  const toggleGroupSelected = (id: string) => setSelectedGroupIds((prev) => (prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]));
+  const toggleIndividualSelected = (id: string) => setSelectedIndividualIds((prev) => (prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]));
+
+  const bulkDeleteGroups = async () => {
+    if (!selectedGroupIds.length) return;
+    if (!window.confirm(`Удалить выбранные группы (${selectedGroupIds.length})? Их занятия и материалы будут удалены. Сами ученики останутся в системе.`)) return;
+    setBulkDeleting(true);
+    try {
+      for (const id of selectedGroupIds) await api.del(`/teacher/groups/${id}`);
+      show("Группы удалены", "ok");
+      setSelectedGroupIds([]);
+      reloadGroups();
+    } catch (e) {
+      show(e instanceof ApiError ? e.message : "Не удалось удалить некоторые группы", "bad");
+    } finally {
+      setBulkDeleting(false);
+    }
+  };
+
+  const bulkDeleteIndividual = async () => {
+    if (!selectedIndividualIds.length) return;
+    if (!window.confirm(`Удалить выбранных учеников (${selectedIndividualIds.length})? Это удалит их аккаунты и весь прогресс без возможности восстановления.`)) return;
+    setBulkDeleting(true);
+    try {
+      for (const id of selectedIndividualIds) await api.del(`/teacher/students/${id}`);
+      show("Ученики удалены", "ok");
+      setSelectedIndividualIds([]);
+      reloadIndividual();
+      reloadRoster();
+      reloadGroups();
+    } catch (e) {
+      show(e instanceof ApiError ? e.message : "Не удалось удалить некоторых учеников", "bad");
+    } finally {
+      setBulkDeleting(false);
+    }
+  };
 
   const openCreate = () => { setEditingId(null); setForm(emptyForm()); setFormOpen(true); };
   const openEdit = (g: GroupRow) => { setEditingId(g.id); setForm(formFromGroup(g)); setFormOpen(true); };
@@ -280,61 +342,135 @@ export function TeacherGroupsPage() {
     <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
       <div style={{ display: "flex", flexWrap: "wrap", gap: 10, alignItems: "center", justifyContent: "space-between" }}>
         <div>
-          <h1 style={{ margin: 0, fontSize: 22 }}>Группы</h1>
-          <p className="card-meta" style={{ margin: "2px 0 0" }}>Групп: {groups.length} · учеников: {totalStudents}</p>
+          <h1 style={{ margin: 0, fontSize: 22 }}>Занятия</h1>
+          <p className="card-meta" style={{ margin: "2px 0 0" }}>Групп: {groups.length} · учеников в группах: {totalStudents} · индивидуально: {individual.length}</p>
         </div>
-        <button type="button" className="btn btn-primary btn-sm" onClick={openCreate}>Создать группу</button>
+        {section === "groups" && <button type="button" className="btn btn-primary btn-sm" onClick={openCreate}>Создать группу</button>}
       </div>
 
-      <div style={{ display: "flex", flexWrap: "wrap", gap: 10 }}>
-        <div style={{ position: "relative", flex: "1 1 220px", minWidth: 200 }}>
-          <Search size={15} style={{ position: "absolute", left: 10, top: "50%", transform: "translateY(-50%)", color: "var(--color-text-3)" }} />
-          <input className="input" style={{ paddingLeft: 32 }} value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Поиск по названию" />
-        </div>
-        <select className="input" style={{ maxWidth: 200 }} value={subjectFilter} onChange={(e) => setSubjectFilter(e.target.value)}>
-          <option value="">Все предметы</option>
-          {SUBJECTS.map((sub) => <option key={sub.id} value={sub.id}>{sub.name}</option>)}
-        </select>
-        <select className="input" style={{ maxWidth: 140 }} value={gradeFilter} onChange={(e) => setGradeFilter(e.target.value)}>
-          <option value="">Все классы</option>
-          {grades.map((g) => <option key={g} value={g}>{g} класс</option>)}
-        </select>
-        <select className="input" style={{ maxWidth: 220 }} value={statusFilter} onChange={(e) => setStatusFilter(e.target.value)}>
-          <option value="">Все группы</option>
-          <option value="attention">Есть отстающие</option>
-        </select>
+      <div className="seg" style={{ alignSelf: "flex-start" }}>
+        <button type="button" className="seg-opt" style={section === "groups" ? { color: "var(--color-accent)", background: "var(--color-accent-100)" } : undefined} onClick={() => setSection("groups")}>
+          Группы
+        </button>
+        <button type="button" className="seg-opt" style={section === "individual" ? { color: "var(--color-accent)", background: "var(--color-accent-100)" } : undefined} onClick={() => setSection("individual")}>
+          Индивидуальные
+        </button>
       </div>
 
-      {rows.length === 0 ? (
-        <div className="card-meta">{groups.length === 0 ? "Групп пока нет — создайте первую." : "Ничего не найдено по этим фильтрам."}</div>
-      ) : (
-        <div data-cols3>
-          {rows.map((g) => (
-            <div key={g.id} className="card" style={{ borderTop: g.color ? `3px solid ${g.color}` : undefined }}>
-              <Link to={`/teacher/groups/${g.id}`} className="card-title" style={{ fontSize: 15, textDecoration: "none", display: "block" }}>
-                {g.name}{g.grade ? ` · ${g.grade} класс` : ""}
-              </Link>
-              <div className="card-meta">{subjectName(g.subjectId)} · {g.studentIds.length} человек{g.direction ? ` · ${DIRECTION_LABEL[g.direction]}` : ""}</div>
-              {scheduleSummary(g.scheduleDays, g.scheduleTime) && <div className="card-meta">Расписание: {scheduleSummary(g.scheduleDays, g.scheduleTime)}</div>}
+      {section === "groups" ? (
+        <>
+          <div style={{ display: "flex", flexWrap: "wrap", gap: 10 }}>
+            <div style={{ position: "relative", flex: "1 1 220px", minWidth: 200 }}>
+              <Search size={15} style={{ position: "absolute", left: 10, top: "50%", transform: "translateY(-50%)", color: "var(--color-text-3)" }} />
+              <input className="input" style={{ paddingLeft: 32 }} value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Поиск по названию" />
+            </div>
+            <select className="input" style={{ maxWidth: 200 }} value={subjectFilter} onChange={(e) => setSubjectFilter(e.target.value)}>
+              <option value="">Все предметы</option>
+              {SUBJECTS.map((sub) => <option key={sub.id} value={sub.id}>{sub.name}</option>)}
+            </select>
+            <select className="input" style={{ maxWidth: 140 }} value={gradeFilter} onChange={(e) => setGradeFilter(e.target.value)}>
+              <option value="">Все классы</option>
+              {grades.map((g) => <option key={g} value={g}>{g} класс</option>)}
+            </select>
+            <select className="input" style={{ maxWidth: 220 }} value={statusFilter} onChange={(e) => setStatusFilter(e.target.value)}>
+              <option value="">Все группы</option>
+              <option value="attention">Есть отстающие</option>
+            </select>
+          </div>
 
-              <div style={{ display: "flex", flexDirection: "column", gap: 3, marginTop: 8, fontSize: 12.5 }}>
-                <div>{g.nextLesson ? `Ближайшее занятие: ${fmtDate(g.nextLesson.startAt.slice(0, 10))} · ${g.nextLesson.startAt.slice(11, 16)}` : "Занятий не запланировано"}</div>
-                {g.currentTopic && <div>Тема: {g.currentTopic}</div>}
-                {g.lastHomework && <div>ДЗ «{g.lastHomework.title}»: сдали {g.lastHomework.done} из {g.lastHomework.total}</div>}
-                <div>Средний балл: {g.avgScore || "—"}</div>
-                {g.attentionCount > 0 && <span className="tag tag-bad" style={{ alignSelf: "flex-start", marginTop: 2 }}>{g.attentionCount} {g.attentionCount === 1 ? "ученик отстаёт" : "учеников отстают"}</span>}
-              </div>
-
-              <div style={{ display: "flex", flexWrap: "wrap", gap: 6, marginTop: 10 }}>
-                <button type="button" className="btn btn-primary btn-sm" onClick={() => navigate(`/teacher/groups/${g.id}`)}>Открыть</button>
-                <Link to={`/teacher/calendar?newLessonGroup=${g.id}`} className="btn btn-secondary btn-sm">Занятие</Link>
-                <button type="button" className="btn btn-secondary btn-sm" onClick={() => openMembers(g)}>Ученик</button>
-                <button type="button" className="btn btn-secondary btn-sm" onClick={() => setMaterialGroupId(g.id)}>Материал</button>
-                <button type="button" className="btn btn-ghost btn-sm" onClick={() => openEdit(g)}>Настройки</button>
+          {selectedGroupIds.length > 0 && (
+            <div className="card" style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10, padding: "10px 14px" }}>
+              <span style={{ fontSize: 13.5 }}>Выбрано групп: {selectedGroupIds.length}</span>
+              <div style={{ display: "flex", gap: 8 }}>
+                <button type="button" className="btn btn-ghost btn-sm" onClick={() => setSelectedGroupIds([])}>Снять выделение</button>
+                <button type="button" className="btn btn-ghost btn-sm" style={{ color: "var(--color-bad)" }} disabled={bulkDeleting} onClick={bulkDeleteGroups}>Удалить выбранные</button>
               </div>
             </div>
-          ))}
-        </div>
+          )}
+
+          {rows.length === 0 ? (
+            <div className="card-meta">{groups.length === 0 ? "Групп пока нет — создайте первую." : "Ничего не найдено по этим фильтрам."}</div>
+          ) : (
+            <div data-cols3>
+              {rows.map((g) => (
+                <div key={g.id} className="card" style={{ borderTop: g.color ? `3px solid ${g.color}` : undefined }}>
+                  <div style={{ display: "flex", alignItems: "flex-start", gap: 8 }}>
+                    <input type="checkbox" checked={selectedGroupIds.includes(g.id)} onChange={() => toggleGroupSelected(g.id)} style={{ marginTop: 4 }} />
+                    <div style={{ flex: 1, minWidth: 0 }}>
+                      <Link to={`/teacher/groups/${g.id}`} className="card-title" style={{ fontSize: 15, textDecoration: "none", display: "block" }}>
+                        {g.name}{g.grade ? ` · ${g.grade} класс` : ""}
+                      </Link>
+                      <div className="card-meta">{subjectName(g.subjectId)} · {g.studentIds.length} человек{g.direction ? ` · ${DIRECTION_LABEL[g.direction]}` : ""}</div>
+                      {scheduleSummary(g.scheduleDays, g.scheduleTime) && <div className="card-meta">Расписание: {scheduleSummary(g.scheduleDays, g.scheduleTime)}</div>}
+                    </div>
+                  </div>
+
+                  <div style={{ display: "flex", flexDirection: "column", gap: 3, marginTop: 8, fontSize: 12.5 }}>
+                    <div>{g.nextLesson ? `Ближайшее занятие: ${fmtDate(g.nextLesson.startAt.slice(0, 10))} · ${g.nextLesson.startAt.slice(11, 16)}` : "Занятий не запланировано"}</div>
+                    {g.currentTopic && <div>Тема: {g.currentTopic}</div>}
+                    {g.lastHomework && <div>ДЗ «{g.lastHomework.title}»: сдали {g.lastHomework.done} из {g.lastHomework.total}</div>}
+                    <div>Средний балл: {g.avgScore || "—"}</div>
+                    {g.attentionCount > 0 && <span className="tag tag-bad" style={{ alignSelf: "flex-start", marginTop: 2 }}>{g.attentionCount} {g.attentionCount === 1 ? "ученик отстаёт" : "учеников отстают"}</span>}
+                  </div>
+
+                  <div style={{ display: "flex", flexWrap: "wrap", gap: 6, marginTop: 10 }}>
+                    <button type="button" className="btn btn-primary btn-sm" onClick={() => navigate(`/teacher/groups/${g.id}`)}>Открыть</button>
+                    <Link to={`/teacher/calendar?newLessonGroup=${g.id}`} className="btn btn-secondary btn-sm">Занятие</Link>
+                    <button type="button" className="btn btn-secondary btn-sm" onClick={() => openMembers(g)}>Ученик</button>
+                    <button type="button" className="btn btn-secondary btn-sm" onClick={() => setMaterialGroupId(g.id)}>Материал</button>
+                    <button type="button" className="btn btn-ghost btn-sm" onClick={() => openEdit(g)}>Настройки</button>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+        </>
+      ) : (
+        <>
+          <div style={{ position: "relative", maxWidth: 320 }}>
+            <Search size={15} style={{ position: "absolute", left: 10, top: "50%", transform: "translateY(-50%)", color: "var(--color-text-3)" }} />
+            <input className="input" style={{ paddingLeft: 32 }} value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Поиск по имени" />
+          </div>
+
+          {selectedIndividualIds.length > 0 && (
+            <div className="card" style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10, padding: "10px 14px" }}>
+              <span style={{ fontSize: 13.5 }}>Выбрано учеников: {selectedIndividualIds.length}</span>
+              <div style={{ display: "flex", gap: 8 }}>
+                <button type="button" className="btn btn-ghost btn-sm" onClick={() => setSelectedIndividualIds([])}>Снять выделение</button>
+                <button type="button" className="btn btn-ghost btn-sm" style={{ color: "var(--color-bad)" }} disabled={bulkDeleting} onClick={bulkDeleteIndividual}>Удалить выбранные</button>
+              </div>
+            </div>
+          )}
+
+          {individualRows.length === 0 ? (
+            <div className="card-meta">{individual.length === 0 ? "Учеников пока нет." : "Ничего не найдено по этому запросу."}</div>
+          ) : (
+            <div data-cols3>
+              {individualRows.map((r) => (
+                <div key={r.id} className="card">
+                  <div style={{ display: "flex", alignItems: "flex-start", gap: 8 }}>
+                    <input type="checkbox" checked={selectedIndividualIds.includes(r.id)} onChange={() => toggleIndividualSelected(r.id)} style={{ marginTop: 4 }} />
+                    <div style={{ flex: 1, minWidth: 0, display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 8 }}>
+                      <Link to={`/teacher/students/${r.id}`} className="card-title" style={{ fontSize: 15, textDecoration: "none" }}>{r.name}</Link>
+                      <span className={`tag ${RISK_LABEL[r.risk].cls}`}>{RISK_LABEL[r.risk].label}</span>
+                    </div>
+                  </div>
+
+                  <div style={{ display: "flex", flexDirection: "column", gap: 3, marginTop: 8, fontSize: 12.5 }}>
+                    <div>{r.nextLesson ? `Ближайшее занятие: ${fmtDate(r.nextLesson.startAt.slice(0, 10))} · ${r.nextLesson.startAt.slice(11, 16)}` : "Занятий не запланировано"}</div>
+                    <div>Средний балл: {r.avg || "—"} · цель {r.goal}</div>
+                    <div>Индивидуальных занятий: {r.lessonCount}</div>
+                  </div>
+
+                  <div style={{ display: "flex", flexWrap: "wrap", gap: 6, marginTop: 10 }}>
+                    <button type="button" className="btn btn-primary btn-sm" onClick={() => navigate(`/teacher/students/${r.id}`)}>Открыть</button>
+                    <Link to={`/teacher/calendar?newLessonStudent=${r.id}`} className="btn btn-secondary btn-sm">Занятие</Link>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+        </>
       )}
 
       {formOpen && (

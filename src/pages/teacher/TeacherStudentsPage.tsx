@@ -80,6 +80,9 @@ export function TeacherStudentsPage() {
   const [createdInviteLink, setCreatedInviteLink] = useState<string | null>(null);
   const [copiedField, setCopiedField] = useState<string | null>(null);
 
+  const [selectedIds, setSelectedIds] = useState<string[]>([]);
+  const [bulkDeleting, setBulkDeleting] = useState(false);
+
   const grades = useMemo(() => Array.from(new Set(roster.map((r) => r.grade))).sort((a, b) => a - b), [roster]);
 
   const rows = roster.filter((r) => {
@@ -89,6 +92,26 @@ export function TeacherStudentsPage() {
     if (statusFilter && r.risk !== statusFilter) return false;
     return true;
   });
+
+  const toggleSelected = (id: string) => setSelectedIds((prev) => (prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]));
+  const toggleSelectAll = () => setSelectedIds((prev) => (prev.length === rows.length ? [] : rows.map((r) => r.id)));
+
+  const bulkDeleteStudents = async () => {
+    if (!selectedIds.length) return;
+    if (!window.confirm(`Удалить выбранных учеников (${selectedIds.length})? Это удалит их аккаунты и весь прогресс без возможности восстановления.`)) return;
+    setBulkDeleting(true);
+    try {
+      for (const id of selectedIds) await api.del(`/teacher/students/${id}`);
+      show("Ученики удалены", "ok");
+      setSelectedIds([]);
+      reloadRoster();
+      reloadGroups();
+    } catch (e) {
+      show(e instanceof ApiError ? e.message : "Не удалось удалить некоторых учеников", "bad");
+    } finally {
+      setBulkDeleting(false);
+    }
+  };
 
   const resetForm = () => {
     setNewStudentName("");
@@ -230,12 +253,23 @@ export function TeacherStudentsPage() {
         </div>
       )}
 
+      {selectedIds.length > 0 && (
+        <div className="card" style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10, padding: "10px 14px" }}>
+          <span style={{ fontSize: 13.5 }}>Выбрано учеников: {selectedIds.length}</span>
+          <div style={{ display: "flex", gap: 8 }}>
+            <button type="button" className="btn btn-ghost btn-sm" onClick={() => setSelectedIds([])}>Снять выделение</button>
+            <button type="button" className="btn btn-ghost btn-sm" style={{ color: "var(--color-bad)" }} disabled={bulkDeleting} onClick={bulkDeleteStudents}>Удалить выбранные</button>
+          </div>
+        </div>
+      )}
+
       {rows.length === 0 ? (
         <div className="card-meta">{roster.length === 0 ? "Учеников пока нет — добавьте первого." : "Ничего не найдено по этим фильтрам."}</div>
       ) : view === "table" ? (
         <table className="table">
           <thead>
             <tr>
+              <th style={{ width: 32 }}><input type="checkbox" checked={selectedIds.length === rows.length} onChange={toggleSelectAll} /></th>
               <th>Ученик</th>
               <th>Группа</th>
               <th>Цель</th>
@@ -248,6 +282,7 @@ export function TeacherStudentsPage() {
           <tbody>
             {rows.map((r) => (
               <tr key={r.id} onClick={() => navigate(`/teacher/students/${r.id}`)} style={{ cursor: "pointer" }}>
+                <td onClick={(e) => e.stopPropagation()}><input type="checkbox" checked={selectedIds.includes(r.id)} onChange={() => toggleSelected(r.id)} /></td>
                 <td>{r.name}</td>
                 <td>{r.groupNames.join(", ") || "—"}{r.grade ? ` · ${r.grade} класс` : ""}</td>
                 <td>{r.goal}</td>
@@ -262,22 +297,19 @@ export function TeacherStudentsPage() {
       ) : (
         <div data-cols3>
           {rows.map((r) => (
-            <button
-              key={r.id}
-              type="button"
-              className="card"
-              style={{ textAlign: "left", cursor: "pointer" }}
-              onClick={() => navigate(`/teacher/students/${r.id}`)}
-            >
-              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start" }}>
-                <div className="card-title" style={{ fontSize: 15 }}>{r.name}</div>
+            <div key={r.id} className="card" style={{ cursor: "pointer" }} onClick={() => navigate(`/teacher/students/${r.id}`)}>
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 8 }}>
+                <div style={{ display: "flex", alignItems: "flex-start", gap: 8 }}>
+                  <input type="checkbox" checked={selectedIds.includes(r.id)} onChange={() => toggleSelected(r.id)} onClick={(e) => e.stopPropagation()} style={{ marginTop: 4 }} />
+                  <div className="card-title" style={{ fontSize: 15 }}>{r.name}</div>
+                </div>
                 <span className={`tag ${RISK_LABEL[r.risk].cls}`}>{RISK_LABEL[r.risk].label}</span>
               </div>
               <div className="card-meta">{r.groupNames.join(", ") || "Без группы"}{r.grade ? ` · ${r.grade} класс` : ""}</div>
               <div className="card-meta">Цель {r.goal} · результат {r.avg || "—"}</div>
               <div className="card-meta">{r.overdue > 0 ? `${r.overdue} просрочено` : "нет просроченных"}</div>
               <div className="card-meta">Активность: {r.lastActive ? fmtDate(r.lastActive.slice(0, 10)) : "—"}</div>
-            </button>
+            </div>
           ))}
         </div>
       )}

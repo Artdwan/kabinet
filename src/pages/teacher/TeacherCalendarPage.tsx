@@ -165,11 +165,13 @@ export function TeacherCalendarPage() {
 
   useEffect(() => {
     const preselectGroup = searchParams.get("newLessonGroup");
-    if (preselectGroup) {
-      setCreateTarget(`group:${preselectGroup}`);
+    const preselectStudent = searchParams.get("newLessonStudent");
+    if (preselectGroup || preselectStudent) {
+      setCreateTarget(preselectGroup ? `group:${preselectGroup}` : `student:${preselectStudent}`);
       setCreateOpen(true);
       const next = new URLSearchParams(searchParams);
       next.delete("newLessonGroup");
+      next.delete("newLessonStudent");
       setSearchParams(next, { replace: true });
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps

@@ -612,6 +612,37 @@ teacherRouter.get("/roster", (req: AuthedRequest, res) => {
   res.json(roster);
 });
 
+teacherRouter.get("/individual", (req: AuthedRequest, res) => {
+  const teacherId = req.auth!.sub;
+  const studentIds = teacherStudentIds(teacherId);
+  const nowIso = new Date().toISOString().slice(0, 16);
+
+  const list = studentIds.map((id) => {
+    const user = db.select().from(s.users).where(eq(s.users.id, id)).get()!;
+    const student = db.select().from(s.students).where(eq(s.students.userId, id)).get();
+    const results = db.select().from(s.ctResults).where(eq(s.ctResults.studentId, id)).all();
+    const avg = results.length ? Math.round(results.reduce((sum, r) => sum + r.score, 0) / results.length) : 0;
+    const risk = avg === 0 ? "risk" : avg < (student?.goalScore ?? 85) - 25 ? "risk" : avg < (student?.goalScore ?? 85) - 10 ? "attention" : "ok";
+
+    const individualLessons = db.select().from(s.lessons).where(and(eq(s.lessons.studentId, id), isNull(s.lessons.groupId))).all();
+    const nextLesson = individualLessons
+      .filter((l) => l.status === "scheduled" && l.startAt >= nowIso)
+      .sort((a, b) => a.startAt.localeCompare(b.startAt))[0];
+    const lastLesson = individualLessons
+      .filter((l) => l.status === "done")
+      .sort((a, b) => b.startAt.localeCompare(a.startAt))[0];
+
+    return {
+      id, name: `${user.name} ${user.lastName}`.trim(), avg, goal: student?.goalScore ?? 85, risk,
+      lessonCount: individualLessons.length,
+      nextLesson: nextLesson ? { id: nextLesson.id, startAt: nextLesson.startAt, title: nextLesson.title } : null,
+      lastLesson: lastLesson ? { id: lastLesson.id, startAt: lastLesson.startAt, title: lastLesson.title } : null,
+    };
+  });
+
+  res.json(list);
+});
+
 teacherRouter.get("/students/:id", (req: AuthedRequest, res) => {
   const teacherId = req.auth!.sub;
   const studentId = pstr(req.params.id);
