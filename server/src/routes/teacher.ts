@@ -177,7 +177,8 @@ teacherRouter.get("/groups/:id", (req: AuthedRequest, res) => {
   res.json({
     id: group.id, name: group.name, subjectId: group.subjectId, grade: group.grade, description: group.description,
     direction: group.direction, goal: group.goal, scheduleNote: group.scheduleNote,
-    scheduleSlots: group.scheduleSlots, startDate: group.startDate,
+    scheduleSlots: group.scheduleSlots, scheduleFormat: group.scheduleFormat, scheduleLocation: group.scheduleLocation,
+    startDate: group.startDate,
     endDate: group.endDate, active: group.active,
     color: group.color, maxStudents: group.maxStudents, hwDefaults: group.hwDefaults,
     students, avgScore, weakTopics, homeworkStats, upcomingLessons, recentLessons,
@@ -207,6 +208,8 @@ function groupFieldsFromBody(body: any) {
   if (body.goal !== undefined) patch.goal = body.goal && String(body.goal).trim() ? String(body.goal).trim() : null;
   if (body.scheduleNote !== undefined) patch.scheduleNote = body.scheduleNote && String(body.scheduleNote).trim() ? String(body.scheduleNote).trim() : null;
   if (body.scheduleSlots !== undefined) patch.scheduleSlots = normalizeScheduleSlots(body.scheduleSlots);
+  if (body.scheduleFormat !== undefined) patch.scheduleFormat = body.scheduleFormat === "online" ? "online" : "offline";
+  if (body.scheduleLocation !== undefined) patch.scheduleLocation = body.scheduleLocation && String(body.scheduleLocation).trim() ? String(body.scheduleLocation).trim() : null;
   if (body.startDate !== undefined) patch.startDate = body.startDate || null;
   if (body.endDate !== undefined) patch.endDate = body.endDate || null;
   if (body.active !== undefined) patch.active = Boolean(body.active);
@@ -375,7 +378,7 @@ teacherRouter.post("/groups/:id/generate-lessons", (req: AuthedRequest, res) => 
         db.insert(s.lessons)
           .values({
             id, teacherId, groupId, studentId: null, title: "", startAt,
-            durationMinutes: 60, format: "offline", location: "",
+            durationMinutes: 60, format: group.scheduleFormat, location: group.scheduleLocation || "",
             status: "scheduled", seriesId: `group-schedule:${groupId}`, note: null, createdAt: new Date().toISOString(),
           })
           .run();
@@ -820,6 +823,8 @@ teacherRouter.get("/individual", (req: AuthedRequest, res) => {
       scheduleStartDate: student?.scheduleStartDate ?? null,
       scheduleEndDate: student?.scheduleEndDate ?? null,
       scheduleActive: student?.scheduleActive ?? true,
+      scheduleFormat: student?.scheduleFormat ?? "offline",
+      scheduleLocation: student?.scheduleLocation ?? null,
     };
   });
 
@@ -892,6 +897,7 @@ teacherRouter.patch("/students/:id", (req: AuthedRequest, res) => {
   const {
     name, lastName, grade, goalScore, startScore, startGrade, goalGrade, note,
     scheduleSubjectId, scheduleSlots, scheduleStartDate, scheduleEndDate, scheduleActive,
+    scheduleFormat, scheduleLocation,
   } = req.body || {};
   if (name !== undefined || lastName !== undefined) {
     const userPatch: Partial<typeof s.users.$inferInsert> = {};
@@ -912,6 +918,8 @@ teacherRouter.patch("/students/:id", (req: AuthedRequest, res) => {
   if (scheduleStartDate !== undefined) patch.scheduleStartDate = scheduleStartDate || null;
   if (scheduleEndDate !== undefined) patch.scheduleEndDate = scheduleEndDate || null;
   if (scheduleActive !== undefined) patch.scheduleActive = Boolean(scheduleActive);
+  if (scheduleFormat !== undefined) patch.scheduleFormat = scheduleFormat === "online" ? "online" : "offline";
+  if (scheduleLocation !== undefined) patch.scheduleLocation = scheduleLocation && String(scheduleLocation).trim() ? String(scheduleLocation).trim() : null;
 
   if (Object.keys(patch).length) db.update(s.students).set(patch).where(eq(s.students.userId, studentId)).run();
   enforceStudentLessonLifecycle(studentId);
@@ -956,7 +964,7 @@ teacherRouter.post("/students/:id/generate-lessons", (req: AuthedRequest, res) =
         db.insert(s.lessons)
           .values({
             id, teacherId, groupId: null, studentId, title: "", startAt,
-            durationMinutes: 60, format: "offline", location: "",
+            durationMinutes: 60, format: student.scheduleFormat, location: student.scheduleLocation || "",
             status: "scheduled", seriesId: `student-schedule:${studentId}`, note: null, createdAt: new Date().toISOString(),
           })
           .run();

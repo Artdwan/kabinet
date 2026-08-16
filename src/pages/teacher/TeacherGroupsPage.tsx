@@ -29,6 +29,8 @@ interface IndividualRow {
   scheduleStartDate: string | null;
   scheduleEndDate: string | null;
   scheduleActive: boolean;
+  scheduleFormat: "offline" | "online";
+  scheduleLocation: string | null;
 }
 
 const RISK_LABEL: Record<string, { label: string; cls: string }> = {
@@ -46,6 +48,8 @@ interface GroupRow {
   direction: "ct" | "school" | "improvement" | null;
   goal: string | null;
   scheduleSlots: ScheduleSlot[] | null;
+  scheduleFormat: "offline" | "online";
+  scheduleLocation: string | null;
   startDate: string | null;
   endDate: string | null;
   active: boolean;
@@ -95,6 +99,8 @@ interface GroupFormState {
   direction: string;
   goal: string;
   scheduleSlots: ScheduleSlot[];
+  scheduleFormat: "offline" | "online";
+  scheduleLocation: string;
   startDate: string;
   endDate: string;
   active: boolean;
@@ -104,7 +110,7 @@ interface GroupFormState {
 }
 
 function emptyForm(): GroupFormState {
-  return { name: "", subjectId: SUBJECTS[0]?.id ?? "", grade: "", description: "", direction: "", goal: "", scheduleSlots: [], startDate: "", endDate: "", active: true, color: "#e1ad66", maxStudents: "", hw: { ...DEFAULT_HW } };
+  return { name: "", subjectId: SUBJECTS[0]?.id ?? "", grade: "", description: "", direction: "", goal: "", scheduleSlots: [], scheduleFormat: "offline", scheduleLocation: "", startDate: "", endDate: "", active: true, color: "#e1ad66", maxStudents: "", hw: { ...DEFAULT_HW } };
 }
 
 function formFromGroup(g: GroupRow): GroupFormState {
@@ -117,7 +123,9 @@ function formFromGroup(g: GroupRow): GroupFormState {
   }
   return {
     name: g.name, subjectId: g.subjectId, grade: g.grade ? String(g.grade) : "", description: g.description || "",
-    direction: g.direction || "", goal: g.goal || "", scheduleSlots: g.scheduleSlots || [], startDate: g.startDate || "",
+    direction: g.direction || "", goal: g.goal || "", scheduleSlots: g.scheduleSlots || [],
+    scheduleFormat: g.scheduleFormat || "offline", scheduleLocation: g.scheduleLocation || "",
+    startDate: g.startDate || "",
     endDate: g.endDate || "", active: g.active,
     color: g.color || "#e1ad66", maxStudents: g.maxStudents ? String(g.maxStudents) : "", hw,
   };
@@ -180,8 +188,8 @@ export function TeacherGroupsPage() {
   const [creatingLesson, setCreatingLesson] = useState(false);
 
   const [scheduleModalId, setScheduleModalId] = useState<string | null>(null);
-  const [scheduleForm, setScheduleForm] = useState<{ subjectId: string; slots: ScheduleSlot[]; startDate: string; endDate: string; active: boolean }>({
-    subjectId: "", slots: [], startDate: "", endDate: "", active: true,
+  const [scheduleForm, setScheduleForm] = useState<{ subjectId: string; slots: ScheduleSlot[]; startDate: string; endDate: string; active: boolean; format: "offline" | "online"; location: string }>({
+    subjectId: "", slots: [], startDate: "", endDate: "", active: true, format: "offline", location: "",
   });
   const [savingSchedule, setSavingSchedule] = useState(false);
 
@@ -257,6 +265,8 @@ export function TeacherGroupsPage() {
         direction: form.direction || null,
         goal: form.goal.trim() || null,
         scheduleSlots: form.scheduleSlots,
+        scheduleFormat: form.scheduleFormat,
+        scheduleLocation: form.scheduleLocation.trim() || null,
         startDate: form.startDate || null,
         endDate: form.endDate || null,
         active: form.active,
@@ -454,6 +464,8 @@ export function TeacherGroupsPage() {
       startDate: r.scheduleStartDate || "",
       endDate: r.scheduleEndDate || "",
       active: r.scheduleActive,
+      format: r.scheduleFormat || "offline",
+      location: r.scheduleLocation || "",
     });
   };
 
@@ -481,6 +493,8 @@ export function TeacherGroupsPage() {
         scheduleStartDate: scheduleForm.startDate || null,
         scheduleEndDate: scheduleForm.endDate || null,
         scheduleActive: scheduleForm.active,
+        scheduleFormat: scheduleForm.format,
+        scheduleLocation: scheduleForm.location.trim() || null,
       });
       show("Расписание сохранено", "ok");
       reloadIndividual();
@@ -753,6 +767,19 @@ export function TeacherGroupsPage() {
                   ))}
                 </div>
               )}
+            </div>
+            <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
+              <div className="field" style={{ minWidth: 140 }}>
+                <label>Формат занятий</label>
+                <select className="input" value={form.scheduleFormat} onChange={(e) => setForm((f) => ({ ...f, scheduleFormat: e.target.value as "offline" | "online" }))}>
+                  <option value="offline">Очно</option>
+                  <option value="online">Онлайн</option>
+                </select>
+              </div>
+              <div className="field" style={{ flex: 1, minWidth: 180 }}>
+                <label>Место / ссылка (необязательно)</label>
+                <input className="input" value={form.scheduleLocation} onChange={(e) => setForm((f) => ({ ...f, scheduleLocation: e.target.value }))} placeholder="Кабинет 12 или ссылка на звонок" />
+              </div>
             </div>
             <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
               <div className="field" style={{ flex: 1, minWidth: 160 }}>
@@ -1034,6 +1061,19 @@ export function TeacherGroupsPage() {
                   ))}
                 </div>
               )}
+            </div>
+            <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
+              <div className="field" style={{ minWidth: 140 }}>
+                <label>Формат занятий</label>
+                <select className="input" value={scheduleForm.format} onChange={(e) => setScheduleForm((f) => ({ ...f, format: e.target.value as "offline" | "online" }))}>
+                  <option value="offline">Очно</option>
+                  <option value="online">Онлайн</option>
+                </select>
+              </div>
+              <div className="field" style={{ flex: 1, minWidth: 180 }}>
+                <label>Место / ссылка (необязательно)</label>
+                <input className="input" value={scheduleForm.location} onChange={(e) => setScheduleForm((f) => ({ ...f, location: e.target.value }))} placeholder="Кабинет 12 или ссылка на звонок" />
+              </div>
             </div>
             <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
               <div className="field" style={{ flex: 1, minWidth: 160 }}>

@@ -37,6 +37,8 @@ export const students = sqliteTable("students", {
   scheduleStartDate: text("schedule_start_date"),
   scheduleEndDate: text("schedule_end_date"),
   scheduleActive: integer("schedule_active", { mode: "boolean" }).notNull().default(true),
+  scheduleFormat: text("schedule_format", { enum: ["offline", "online"] }).notNull().default("offline"),
+  scheduleLocation: text("schedule_location"),
 });
 
 export const parentLinks = sqliteTable(
@@ -61,6 +63,8 @@ export const groups = sqliteTable("groups", {
   scheduleDays: text("schedule_days", { mode: "json" }), // deprecated, superseded by scheduleSlots
   scheduleTime: text("schedule_time"), // deprecated, superseded by scheduleSlots
   scheduleSlots: text("schedule_slots", { mode: "json" }), // { day: number (0=Monday..6=Sunday), time: string ("HH:MM") }[]
+  scheduleFormat: text("schedule_format", { enum: ["offline", "online"] }).notNull().default("offline"),
+  scheduleLocation: text("schedule_location"),
   startDate: text("start_date"),
   endDate: text("end_date"),
   active: integer("active", { mode: "boolean" }).notNull().default(true),
