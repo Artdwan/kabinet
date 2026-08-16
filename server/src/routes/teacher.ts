@@ -688,7 +688,25 @@ teacherRouter.patch("/lessons/:id", (req: AuthedRequest, res) => {
     patch.seriesId = null;
   }
 
-  if (scope === "series" && lesson.seriesId) {
+  if (scope === "series" && lesson.seriesId && status === "cancelled") {
+    // Cancelling a whole series: past occurrences are kept and marked cancelled (for the record),
+    // future ones are removed outright so they don't clutter the calendar.
+    const nowIso = new Date().toISOString().slice(0, 16);
+    const seriesLessons = db
+      .select()
+      .from(s.lessons)
+      .where(and(eq(s.lessons.seriesId, lesson.seriesId), eq(s.lessons.teacherId, teacherId), eq(s.lessons.status, "scheduled")))
+      .all();
+    const toDelete = seriesLessons.filter((l) => l.startAt >= nowIso).map((l) => l.id);
+    const toCancel = seriesLessons.filter((l) => l.startAt < nowIso).map((l) => l.id);
+    if (toDelete.length) {
+      db.delete(s.lessonAttendance).where(inArray(s.lessonAttendance.lessonId, toDelete)).run();
+      db.delete(s.lessons).where(inArray(s.lessons.id, toDelete)).run();
+    }
+    if (toCancel.length) {
+      db.update(s.lessons).set({ status: "cancelled" }).where(inArray(s.lessons.id, toCancel)).run();
+    }
+  } else if (scope === "series" && lesson.seriesId) {
     db.update(s.lessons)
       .set(patch)
       .where(and(eq(s.lessons.seriesId, lesson.seriesId), eq(s.lessons.teacherId, teacherId), eq(s.lessons.status, "scheduled")))
