@@ -440,7 +440,7 @@ export function TeacherCalendarPage() {
                   type="button"
                   onClick={() => { setRefDate(d); if (view === "month") setMiniMonth(d); }}
                   style={{
-                    aspectRatio: "1", borderRadius: 6, border: "none", cursor: "pointer",
+                    aspectRatio: "1", borderRadius: 6, border: "none", outline: "none", cursor: "pointer",
                     background: selected ? "var(--color-accent)" : key === todayKey ? "var(--color-accent-100)" : "transparent",
                     color: selected ? "#1a1410" : inMonth ? "var(--color-text-1)" : "var(--color-text-3)",
                     fontSize: 11,
