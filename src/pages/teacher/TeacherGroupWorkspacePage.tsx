@@ -63,6 +63,13 @@ interface MaterialRow {
   createdAt: string;
 }
 
+interface PendingInvite {
+  token: string;
+  name: string;
+  lastName: string;
+  groupIds: string[];
+}
+
 const MATERIAL_TYPE_LABEL: Record<string, string> = {
   theory: "Теория", formula: "Формулы", example: "Пример", video: "Видео",
   pdf: "PDF", task: "Задания", recording: "Запись занятия", other: "Другое",
@@ -103,12 +110,34 @@ export function TeacherGroupWorkspacePage() {
   const { data: g } = useApiData<GroupWorkspace>(`/teacher/groups/${id}`);
   const { data: lessons = [] } = useApiData<LessonRow[]>(`/teacher/lessons?groupId=${id}`);
   const { data: materials = [], reload: reloadMaterials } = useApiData<MaterialRow[]>(`/teacher/materials?groupId=${id}`);
+  const { data: invites = [], reload: reloadInvites } = useApiData<PendingInvite[]>("/teacher/student-invites");
   const [tab, setTab] = useState<Tab>("overview");
 
   const [materialTitle, setMaterialTitle] = useState("");
   const [materialType, setMaterialType] = useState("theory");
   const [materialUrl, setMaterialUrl] = useState("");
   const [savingMaterial, setSavingMaterial] = useState(false);
+  const [copiedToken, setCopiedToken] = useState<string | null>(null);
+
+  const copyInviteLink = async (token: string) => {
+    try {
+      await navigator.clipboard.writeText(`${window.location.origin}/invite/${token}`);
+      setCopiedToken(token);
+      setTimeout(() => setCopiedToken(null), 2000);
+    } catch {
+      show("Не удалось скопировать — выделите ссылку вручную", "bad");
+    }
+  };
+
+  const cancelInvite = async (token: string) => {
+    try {
+      await api.del(`/teacher/student-invites/${token}`);
+      show("Приглашение отменено", "ok");
+      reloadInvites();
+    } catch (e) {
+      show(e instanceof ApiError ? e.message : "Не удалось отменить приглашение", "bad");
+    }
+  };
 
   const addMaterial = async () => {
     if (!id || !materialTitle.trim()) return;
@@ -139,6 +168,7 @@ export function TeacherGroupWorkspacePage() {
 
   const subjectName = SUBJECTS.find((s) => s.id === g.subjectId)?.name ?? g.subjectId;
   const needAttention = g.students.filter((s) => s.risk !== "ok");
+  const groupInvites = invites.filter((inv) => inv.groupIds.includes(g.id));
 
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 18 }}>
@@ -218,31 +248,56 @@ export function TeacherGroupWorkspacePage() {
       )}
 
       {tab === "students" && (
-        <table className="table">
-          <thead>
-            <tr>
-              <th>Ученик</th>
-              <th>Посещаемость</th>
-              <th>ДЗ</th>
-              <th>Средний балл</th>
-              <th>Последняя активность</th>
-              <th>Статус</th>
-            </tr>
-          </thead>
-          <tbody>
-            {g.students.map((s) => (
-              <tr key={s.id} onClick={() => navigate(`/teacher/students/${s.id}`)} style={{ cursor: "pointer" }}>
-                <td>{s.name}</td>
-                <td>{s.attendancePct === null ? "—" : `${s.attendancePct}%`}</td>
-                <td>{s.done}/{s.total}{s.overdue > 0 ? ` (${s.overdue} просрочено)` : ""}</td>
-                <td>{s.avg || "—"}</td>
-                <td>{s.lastActive ? fmtDate(s.lastActive.slice(0, 10)) : "—"}</td>
-                <td><span className={`tag ${RISK_LABEL[s.risk].cls}`}>{RISK_LABEL[s.risk].label}</span></td>
+        <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
+          {groupInvites.length > 0 && (
+            <div className="card" style={{ borderColor: "var(--color-accent)" }}>
+              <div className="card-title" style={{ fontSize: 14 }}>Ожидают регистрации ({groupInvites.length})</div>
+              <p className="card-meta" style={{ margin: "4px 0 8px" }}>
+                Приглашены в эту группу, но ещё не зарегистрировались — как только перейдут по ссылке, появятся в списке ниже.
+              </p>
+              <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+                {groupInvites.map((inv) => (
+                  <div key={inv.token} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
+                    <div style={{ fontSize: 13.5 }}>{inv.name} {inv.lastName}</div>
+                    <div style={{ display: "flex", gap: 6 }}>
+                      <span className="tag tag-accent">Ожидает регистрации</span>
+                      <button type="button" className="btn btn-ghost btn-sm" onClick={() => copyInviteLink(inv.token)}>
+                        {copiedToken === inv.token ? "Скопировано" : "Ссылка"}
+                      </button>
+                      <button type="button" className="btn btn-ghost btn-sm" onClick={() => cancelInvite(inv.token)}>Отменить</button>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+
+          <table className="table">
+            <thead>
+              <tr>
+                <th>Ученик</th>
+                <th>Посещаемость</th>
+                <th>ДЗ</th>
+                <th>Средний балл</th>
+                <th>Последняя активность</th>
+                <th>Статус</th>
               </tr>
-            ))}
-            {g.students.length === 0 && <tr><td colSpan={6} className="card-meta">В группе пока нет учеников.</td></tr>}
-          </tbody>
-        </table>
+            </thead>
+            <tbody>
+              {g.students.map((s) => (
+                <tr key={s.id} onClick={() => navigate(`/teacher/students/${s.id}`)} style={{ cursor: "pointer" }}>
+                  <td>{s.name}</td>
+                  <td>{s.attendancePct === null ? "—" : `${s.attendancePct}%`}</td>
+                  <td>{s.done}/{s.total}{s.overdue > 0 ? ` (${s.overdue} просрочено)` : ""}</td>
+                  <td>{s.avg || "—"}</td>
+                  <td>{s.lastActive ? fmtDate(s.lastActive.slice(0, 10)) : "—"}</td>
+                  <td><span className={`tag ${RISK_LABEL[s.risk].cls}`}>{RISK_LABEL[s.risk].label}</span></td>
+                </tr>
+              ))}
+              {g.students.length === 0 && <tr><td colSpan={6} className="card-meta">В группе пока нет учеников.</td></tr>}
+            </tbody>
+          </table>
+        </div>
       )}
 
       {tab === "lessons" && (
