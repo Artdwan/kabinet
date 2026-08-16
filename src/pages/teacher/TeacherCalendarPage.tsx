@@ -315,16 +315,6 @@ export function TeacherCalendarPage() {
 
   const todayKey = toDateInput(new Date());
 
-  const step = (dir: 1 | -1) => {
-    const d = new Date(refDate);
-    if (view === "year") d.setFullYear(d.getFullYear() + dir);
-    else if (view === "month") d.setDate(d.getDate() + dir * 30);
-    else if (view === "week") d.setDate(d.getDate() + dir * 7);
-    else d.setDate(d.getDate() + dir);
-    setRefDate(d);
-    setMiniMonth(d);
-  };
-
   const grades = useMemo(() => Array.from(new Set(groups.map((g) => g.grade).filter((g): g is number => g != null))).sort((a, b) => a - b), [groups]);
 
   const miniGridStart = startOfMonthGrid(miniMonth);
@@ -487,26 +477,6 @@ export function TeacherCalendarPage() {
       <div style={{ flex: 1, minWidth: 0, minHeight: 0, display: "flex", flexDirection: "column", gap: 16 }}>
         <div style={{ display: "flex", flexWrap: "wrap", gap: 10, justifyContent: "space-between", alignItems: "center", flex: "none" }}>
           <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-            {view !== "list" && (
-              <>
-                <button type="button" className="btn btn-ghost btn-sm" onClick={() => step(-1)}>
-                  <ChevronLeft size={16} />
-                </button>
-                <span style={{ fontFamily: "var(--font-heading)", fontSize: 18, minWidth: 160, textAlign: "center" }}>
-                  {view === "year"
-                    ? `${refDate.getFullYear()}`
-                    : view === "month"
-                      ? `${MONTH_NAMES[refDate.getMonth()]} ${refDate.getFullYear()}`
-                      : view === "week"
-                        ? `Неделя с ${toDateInput(rangeStart)}`
-                        : `${refDate.getDate()} ${MONTH_NAMES[refDate.getMonth()].toLowerCase()}`}
-                </span>
-                <button type="button" className="btn btn-ghost btn-sm" onClick={() => step(1)}>
-                  <ChevronRight size={16} />
-                </button>
-                <button type="button" className="btn btn-ghost btn-sm" onClick={() => { setRefDate(new Date()); setMiniMonth(new Date()); }}>Сегодня</button>
-              </>
-            )}
             {view === "list" && (
               <span style={{ fontFamily: "var(--font-heading)", fontSize: 18 }}>Занятия на ближайшие 90 дней</span>
             )}
