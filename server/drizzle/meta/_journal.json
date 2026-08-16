@@ -78,6 +78,13 @@
       "when": 1786842575692,
       "tag": "0010_grey_the_fallen",
       "breakpoints": true
+    },
+    {
+      "idx": 11,
+      "version": "6",
+      "when": 1786843110121,
+      "tag": "0011_naive_loki",
+      "breakpoints": true
     }
   ]
 }

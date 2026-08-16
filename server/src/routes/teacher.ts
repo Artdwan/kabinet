@@ -239,6 +239,28 @@ function enforceGroupLifecycle(groupId: string) {
   }
 }
 
+function enforceStudentLessonLifecycle(studentId: string) {
+  const student = db.select().from(s.students).where(eq(s.students.userId, studentId)).get();
+  if (!student) return;
+  const nowIso = new Date().toISOString().slice(0, 16);
+  let cutoff: string | null = null;
+  if (!student.scheduleActive) cutoff = nowIso;
+  else if (student.scheduleEndDate) cutoff = `${student.scheduleEndDate}T23:59`;
+  if (!cutoff) return;
+
+  const toRemove = db
+    .select()
+    .from(s.lessons)
+    .where(and(eq(s.lessons.studentId, studentId), isNull(s.lessons.groupId), eq(s.lessons.status, "scheduled")))
+    .all()
+    .filter((l) => l.startAt >= cutoff!)
+    .map((l) => l.id);
+  if (toRemove.length) {
+    db.delete(s.lessonAttendance).where(inArray(s.lessonAttendance.lessonId, toRemove)).run();
+    db.delete(s.lessons).where(inArray(s.lessons.id, toRemove)).run();
+  }
+}
+
 teacherRouter.post("/groups", (req: AuthedRequest, res) => {
   const teacherId = req.auth!.sub;
   const { name, subjectId } = req.body || {};
@@ -727,10 +749,16 @@ teacherRouter.get("/individual", (req: AuthedRequest, res) => {
       .sort((a, b) => b.startAt.localeCompare(a.startAt))[0];
 
     return {
-      id, name: `${user.name} ${user.lastName}`.trim(), avg, goal: student?.goalScore ?? 85, risk,
+      id, name: `${user.name} ${user.lastName}`.trim(), grade: student?.grade ?? 11,
+      avg, goal: student?.goalScore ?? 85, risk,
       lessonCount: individualLessons.length,
       nextLesson: nextLesson ? { id: nextLesson.id, startAt: nextLesson.startAt, title: nextLesson.title } : null,
       lastLesson: lastLesson ? { id: lastLesson.id, startAt: lastLesson.startAt, title: lastLesson.title } : null,
+      scheduleSubjectId: student?.scheduleSubjectId ?? null,
+      scheduleSlots: student?.scheduleSlots ?? null,
+      scheduleStartDate: student?.scheduleStartDate ?? null,
+      scheduleEndDate: student?.scheduleEndDate ?? null,
+      scheduleActive: student?.scheduleActive ?? true,
     };
   });
 
@@ -800,7 +828,10 @@ teacherRouter.patch("/students/:id", (req: AuthedRequest, res) => {
   const studentId = pstr(req.params.id);
   if (!teacherStudentIds(teacherId).includes(studentId)) return res.status(404).json({ error: "Ученик не найден" });
 
-  const { name, lastName, grade, goalScore, startScore, startGrade, goalGrade, note } = req.body || {};
+  const {
+    name, lastName, grade, goalScore, startScore, startGrade, goalGrade, note,
+    scheduleSubjectId, scheduleSlots, scheduleStartDate, scheduleEndDate, scheduleActive,
+  } = req.body || {};
   if (name !== undefined || lastName !== undefined) {
     const userPatch: Partial<typeof s.users.$inferInsert> = {};
     if (name !== undefined && String(name).trim()) userPatch.name = String(name).trim();
@@ -815,9 +846,65 @@ teacherRouter.patch("/students/:id", (req: AuthedRequest, res) => {
   if (startGrade !== undefined) patch.startGrade = startGrade === null || startGrade === "" ? null : Number(startGrade);
   if (goalGrade !== undefined) patch.goalGrade = goalGrade === null || goalGrade === "" ? null : Number(goalGrade);
   if (note !== undefined) patch.note = note && String(note).trim() ? String(note).trim() : null;
+  if (scheduleSubjectId !== undefined) patch.scheduleSubjectId = scheduleSubjectId || null;
+  if (scheduleSlots !== undefined) patch.scheduleSlots = normalizeScheduleSlots(scheduleSlots);
+  if (scheduleStartDate !== undefined) patch.scheduleStartDate = scheduleStartDate || null;
+  if (scheduleEndDate !== undefined) patch.scheduleEndDate = scheduleEndDate || null;
+  if (scheduleActive !== undefined) patch.scheduleActive = Boolean(scheduleActive);
 
-  db.update(s.students).set(patch).where(eq(s.students.userId, studentId)).run();
+  if (Object.keys(patch).length) db.update(s.students).set(patch).where(eq(s.students.userId, studentId)).run();
+  enforceStudentLessonLifecycle(studentId);
   res.json({ ok: true });
+});
+
+teacherRouter.post("/students/:id/generate-lessons", (req: AuthedRequest, res) => {
+  const teacherId = req.auth!.sub;
+  const studentId = pstr(req.params.id);
+  if (!teacherStudentIds(teacherId).includes(studentId)) return res.status(404).json({ error: "Ученик не найден" });
+
+  const student = db.select().from(s.students).where(eq(s.students.userId, studentId)).get();
+  const slots = (student?.scheduleSlots as ScheduleSlot[] | null) || [];
+  if (!slots.length) return res.status(400).json({ error: "Сначала укажите дни и время расписания" });
+  if (!student?.scheduleActive) return res.status(400).json({ error: "Расписание неактивно" });
+
+  const slotsByDay = new Map<number, string>();
+  slots.forEach((slot) => slotsByDay.set(slot.day, slot.time));
+
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+  const start = student.scheduleStartDate ? new Date(`${student.scheduleStartDate}T00:00`) : today;
+  const rangeStart = start > today ? start : today;
+  const defaultHorizon = new Date(rangeStart);
+  defaultHorizon.setDate(defaultHorizon.getDate() + 12 * 7);
+  const until = student.scheduleEndDate ? new Date(`${student.scheduleEndDate}T00:00`) : defaultHorizon;
+
+  const existing = new Set(
+    db.select({ startAt: s.lessons.startAt }).from(s.lessons).where(and(eq(s.lessons.studentId, studentId), isNull(s.lessons.groupId))).all().map((l) => l.startAt),
+  );
+
+  const created: string[] = [];
+  const cursor = new Date(rangeStart);
+  while (cursor <= until) {
+    const weekday = (cursor.getDay() + 6) % 7;
+    const time = slotsByDay.get(weekday);
+    if (time) {
+      const startAt = `${cursor.toISOString().slice(0, 10)}T${time}`;
+      if (!existing.has(startAt)) {
+        const id = randomUUID();
+        db.insert(s.lessons)
+          .values({
+            id, teacherId, groupId: null, studentId, title: "", startAt,
+            durationMinutes: 60, format: "offline", location: "",
+            status: "scheduled", seriesId: `student-schedule:${studentId}`, note: null, createdAt: new Date().toISOString(),
+          })
+          .run();
+        created.push(id);
+      }
+    }
+    cursor.setDate(cursor.getDate() + 1);
+  }
+
+  res.json({ ok: true, created: created.length });
 });
 
 teacherRouter.delete("/students/:id", (req: AuthedRequest, res) => {

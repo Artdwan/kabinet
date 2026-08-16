@@ -178,6 +178,45 @@ export function TeacherCalendarPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
+  const [dragOverKey, setDragOverKey] = useState<string | null>(null);
+
+  const rescheduleLesson = async (lessonId: string, newStartAt: string) => {
+    const lesson = lessons.find((l) => l.id === lessonId);
+    if (lesson && lesson.startAt === newStartAt) return;
+    try {
+      await api.patch(`/teacher/lessons/${lessonId}`, { startAt: newStartAt });
+      show("Занятие перенесено", "ok");
+      reload();
+    } catch (e) {
+      show(e instanceof ApiError ? e.message : "Не удалось перенести занятие", "bad");
+    }
+  };
+
+  const handleGridDrop = (e: React.DragEvent<HTMLDivElement>, day: Date) => {
+    e.preventDefault();
+    setDragOverKey(null);
+    const lessonId = e.dataTransfer.getData("text/plain");
+    if (!lessonId) return;
+    const rect = e.currentTarget.getBoundingClientRect();
+    const pct = Math.min(1, Math.max(0, (e.clientY - rect.top) / rect.height));
+    let minutes = DAY_START_MIN + pct * DAY_RANGE_MIN;
+    minutes = Math.round(minutes / 15) * 15;
+    minutes = Math.min(DAY_END_MIN, Math.max(DAY_START_MIN, minutes));
+    const hh = String(Math.floor(minutes / 60)).padStart(2, "0");
+    const mm = String(minutes % 60).padStart(2, "0");
+    rescheduleLesson(lessonId, `${toDateInput(day)}T${hh}:${mm}`);
+  };
+
+  const handleMonthDrop = (e: React.DragEvent<HTMLDivElement>, day: Date) => {
+    e.preventDefault();
+    setDragOverKey(null);
+    const lessonId = e.dataTransfer.getData("text/plain");
+    if (!lessonId) return;
+    const lesson = lessons.find((l) => l.id === lessonId);
+    const time = lesson ? lesson.startAt.slice(11, 16) : "09:00";
+    rescheduleLesson(lessonId, `${toDateInput(day)}T${time}`);
+  };
+
   const [detailId, setDetailId] = useState<string | null>(null);
   const { data: detail, reload: reloadDetail } = useApiData<LessonDetail>(detailId ? `/teacher/lessons/${detailId}` : "", [detailId]);
   const [attendanceDraft, setAttendanceDraft] = useState<Record<string, "present" | "absent" | "excused">>({});
@@ -334,24 +373,32 @@ export function TeacherCalendarPage() {
               style={{
                 position: "relative", height: "100%", borderLeft: "1px solid var(--color-line)",
                 backgroundImage: `repeating-linear-gradient(to bottom, var(--color-line) 0, var(--color-line) 1px, transparent 1px, transparent ${pctOfDay(DAY_START_MIN + 60)}%)`,
+                background: dragOverKey === key ? "var(--color-accent-100)" : undefined,
                 cursor: "pointer",
               }}
               onClick={() => openCreateForDay(d)}
+              onDragOver={(e) => { e.preventDefault(); e.dataTransfer.dropEffect = "move"; }}
+              onDragEnter={() => setDragOverKey(key)}
+              onDragLeave={() => setDragOverKey((k) => (k === key ? null : k))}
+              onDrop={(e) => handleGridDrop(e, d)}
             >
               {dayLessons.map((l) => {
                 const start = Math.max(minutesOfDay(l.startAt), DAY_START_MIN);
                 const top = pctOfDay(start);
                 const height = (l.durationMinutes / DAY_RANGE_MIN) * 100;
                 const color = eventColor(l.groupId || l.studentId || l.id);
+                const draggable = l.status === "scheduled";
                 return (
                   <button
                     key={l.id}
                     type="button"
+                    draggable={draggable}
+                    onDragStart={(e) => { e.dataTransfer.setData("text/plain", l.id); e.dataTransfer.effectAllowed = "move"; }}
                     onClick={(e) => { e.stopPropagation(); setDetailId(l.id); }}
                     style={{
                       position: "absolute", left: 4, right: 4, top: `${top}%`, height: `${height}%`, minHeight: 30,
                       background: color.bg, borderLeft: `4px solid ${color.accent}`,
-                      borderRadius: 8, padding: "8px 10px", textAlign: "left", cursor: "pointer",
+                      borderRadius: 8, padding: "8px 10px", textAlign: "left", cursor: draggable ? "grab" : "pointer",
                       overflow: "hidden", color: "var(--color-text-1)",
                       opacity: l.status === "cancelled" ? 0.5 : 1,
                       boxShadow: "var(--shadow-sm)",
@@ -549,22 +596,30 @@ export function TeacherCalendarPage() {
                     padding: 8,
                     opacity: inMonth ? 1 : 0.45,
                     borderColor: key === todayKey ? "var(--color-accent)" : undefined,
+                    background: dragOverKey === key ? "var(--color-accent-100)" : undefined,
                     cursor: "pointer",
                   }}
                   onClick={() => openCreateForDay(d)}
+                  onDragOver={(e) => { e.preventDefault(); e.dataTransfer.dropEffect = "move"; }}
+                  onDragEnter={() => setDragOverKey(key)}
+                  onDragLeave={() => setDragOverKey((k) => (k === key ? null : k))}
+                  onDrop={(e) => handleMonthDrop(e, d)}
                 >
                   <div style={{ fontSize: 12.5, color: "var(--color-text-3)" }}>{d.getDate()}</div>
                   <div style={{ display: "flex", flexDirection: "column", gap: 4, marginTop: 4 }}>
                     {dayLessons.map((l) => {
                       const color = eventColor(l.groupId || l.studentId || l.id);
+                      const draggable = l.status === "scheduled";
                       return (
                         <button
                           key={l.id}
                           type="button"
+                          draggable={draggable}
+                          onDragStart={(e) => { e.dataTransfer.setData("text/plain", l.id); e.dataTransfer.effectAllowed = "move"; }}
                           onClick={(e) => { e.stopPropagation(); setDetailId(l.id); }}
                           className="tag"
                           style={{
-                            textAlign: "left", fontSize: 11, whiteSpace: "normal", cursor: "pointer",
+                            textAlign: "left", fontSize: 11, whiteSpace: "normal", cursor: draggable ? "grab" : "pointer",
                             background: color.bg, color: color.accent,
                             opacity: l.status === "cancelled" ? 0.5 : 1,
                             textDecoration: l.status === "cancelled" ? "line-through" : undefined,

@@ -32,6 +32,11 @@ export const students = sqliteTable("students", {
   goalGrade: integer("goal_grade"),
   teacherId: text("teacher_id").references(() => users.id),
   note: text("note"),
+  scheduleSubjectId: text("schedule_subject_id"),
+  scheduleSlots: text("schedule_slots", { mode: "json" }), // { day: number (0=Monday..6=Sunday), time: string ("HH:MM") }[]
+  scheduleStartDate: text("schedule_start_date"),
+  scheduleEndDate: text("schedule_end_date"),
+  scheduleActive: integer("schedule_active", { mode: "boolean" }).notNull().default(true),
 });
 
 export const parentLinks = sqliteTable(

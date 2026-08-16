@@ -17,12 +17,18 @@ interface RosterRow {
 interface IndividualRow {
   id: string;
   name: string;
+  grade: number | null;
   avg: number;
   goal: number;
   risk: "ok" | "attention" | "risk";
   lessonCount: number;
   nextLesson: { id: string; startAt: string; title: string } | null;
   lastLesson: { id: string; startAt: string; title: string } | null;
+  scheduleSubjectId: string | null;
+  scheduleSlots: ScheduleSlot[] | null;
+  scheduleStartDate: string | null;
+  scheduleEndDate: string | null;
+  scheduleActive: boolean;
 }
 
 const RISK_LABEL: Record<string, { label: string; cls: string }> = {
@@ -129,6 +135,9 @@ export function TeacherGroupsPage() {
   const [subjectFilter, setSubjectFilter] = useState("");
   const [gradeFilter, setGradeFilter] = useState("");
   const [statusFilter, setStatusFilter] = useState("");
+  const [indivSubjectFilter, setIndivSubjectFilter] = useState("");
+  const [indivGradeFilter, setIndivGradeFilter] = useState("");
+  const [indivStatusFilter, setIndivStatusFilter] = useState("");
 
   const [selectedGroupIds, setSelectedGroupIds] = useState<string[]>([]);
   const [selectedIndividualIds, setSelectedIndividualIds] = useState<string[]>([]);
@@ -170,7 +179,14 @@ export function TeacherGroupsPage() {
   const [lessonLocation, setLessonLocation] = useState("");
   const [creatingLesson, setCreatingLesson] = useState(false);
 
+  const [scheduleModalId, setScheduleModalId] = useState<string | null>(null);
+  const [scheduleForm, setScheduleForm] = useState<{ subjectId: string; slots: ScheduleSlot[]; startDate: string; endDate: string; active: boolean }>({
+    subjectId: "", slots: [], startDate: "", endDate: "", active: true,
+  });
+  const [savingSchedule, setSavingSchedule] = useState(false);
+
   const grades = useMemo(() => Array.from(new Set(groups.map((g) => g.grade).filter((g): g is number => g != null))).sort((a, b) => a - b), [groups]);
+  const indivGrades = useMemo(() => Array.from(new Set(individual.map((r) => r.grade).filter((g): g is number => g != null))).sort((a, b) => a - b), [individual]);
   const totalStudents = useMemo(() => new Set(groups.flatMap((g) => g.studentIds)).size, [groups]);
   const subjectName = (id: string) => SUBJECTS.find((s) => s.id === id)?.name ?? id;
 
@@ -182,7 +198,13 @@ export function TeacherGroupsPage() {
     return true;
   });
 
-  const individualRows = individual.filter((r) => !search.trim() || r.name.toLowerCase().includes(search.trim().toLowerCase()));
+  const individualRows = individual.filter((r) => {
+    if (search.trim() && !r.name.toLowerCase().includes(search.trim().toLowerCase())) return false;
+    if (indivSubjectFilter && r.scheduleSubjectId !== indivSubjectFilter) return false;
+    if (indivGradeFilter && String(r.grade ?? "") !== indivGradeFilter) return false;
+    if (indivStatusFilter && r.risk !== indivStatusFilter) return false;
+    return true;
+  });
 
   const toggleGroupSelected = (id: string) => setSelectedGroupIds((prev) => (prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]));
   const toggleIndividualSelected = (id: string) => setSelectedIndividualIds((prev) => (prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]));
@@ -424,6 +446,65 @@ export function TeacherGroupsPage() {
     }
   };
 
+  const openScheduleSettings = (r: IndividualRow) => {
+    setScheduleModalId(r.id);
+    setScheduleForm({
+      subjectId: r.scheduleSubjectId || "",
+      slots: r.scheduleSlots || [],
+      startDate: r.scheduleStartDate || "",
+      endDate: r.scheduleEndDate || "",
+      active: r.scheduleActive,
+    });
+  };
+
+  const toggleIndivScheduleDay = (day: number) => {
+    setScheduleForm((f) => {
+      const has = f.slots.some((s) => s.day === day);
+      const slots = has
+        ? f.slots.filter((s) => s.day !== day)
+        : [...f.slots, { day, time: "17:00" }].sort((a, b) => a.day - b.day);
+      return { ...f, slots };
+    });
+  };
+
+  const setIndivScheduleTime = (day: number, time: string) => {
+    setScheduleForm((f) => ({ ...f, slots: f.slots.map((s) => (s.day === day ? { ...s, time } : s)) }));
+  };
+
+  const saveIndivSchedule = async () => {
+    if (!scheduleModalId) return;
+    setSavingSchedule(true);
+    try {
+      await api.patch(`/teacher/students/${scheduleModalId}`, {
+        scheduleSubjectId: scheduleForm.subjectId || null,
+        scheduleSlots: scheduleForm.slots,
+        scheduleStartDate: scheduleForm.startDate || null,
+        scheduleEndDate: scheduleForm.endDate || null,
+        scheduleActive: scheduleForm.active,
+      });
+      show("Расписание сохранено", "ok");
+      reloadIndividual();
+    } catch (e) {
+      show(e instanceof ApiError ? e.message : "Не удалось сохранить расписание", "bad");
+    } finally {
+      setSavingSchedule(false);
+    }
+  };
+
+  const generateIndivLessons = async () => {
+    if (!scheduleModalId) return;
+    setSavingSchedule(true);
+    try {
+      const { created } = await api.post<{ created: number }>(`/teacher/students/${scheduleModalId}/generate-lessons`, {});
+      show(created > 0 ? `Добавлено занятий: ${created}` : "Все занятия по расписанию уже в календаре", "ok");
+      reloadIndividual();
+    } catch (e) {
+      show(e instanceof ApiError ? e.message : "Не удалось внести занятия в календарь", "bad");
+    } finally {
+      setSavingSchedule(false);
+    }
+  };
+
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
       <div style={{ display: "flex", flexWrap: "wrap", gap: 10, alignItems: "center", justifyContent: "space-between" }}>
@@ -521,9 +602,25 @@ export function TeacherGroupsPage() {
         </>
       ) : (
         <>
-          <div style={{ position: "relative", maxWidth: 320 }}>
-            <Search size={15} style={{ position: "absolute", left: 10, top: "50%", transform: "translateY(-50%)", color: "var(--color-text-3)" }} />
-            <input className="input" style={{ paddingLeft: 32 }} value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Поиск по имени" />
+          <div style={{ display: "flex", flexWrap: "wrap", gap: 10 }}>
+            <div style={{ position: "relative", flex: "1 1 220px", minWidth: 200 }}>
+              <Search size={15} style={{ position: "absolute", left: 10, top: "50%", transform: "translateY(-50%)", color: "var(--color-text-3)" }} />
+              <input className="input" style={{ paddingLeft: 32 }} value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Поиск по имени" />
+            </div>
+            <select className="input" style={{ maxWidth: 200 }} value={indivSubjectFilter} onChange={(e) => setIndivSubjectFilter(e.target.value)}>
+              <option value="">Все предметы</option>
+              {SUBJECTS.map((sub) => <option key={sub.id} value={sub.id}>{sub.name}</option>)}
+            </select>
+            <select className="input" style={{ maxWidth: 140 }} value={indivGradeFilter} onChange={(e) => setIndivGradeFilter(e.target.value)}>
+              <option value="">Все классы</option>
+              {indivGrades.map((g) => <option key={g} value={g}>{g} класс</option>)}
+            </select>
+            <select className="input" style={{ maxWidth: 220 }} value={indivStatusFilter} onChange={(e) => setIndivStatusFilter(e.target.value)}>
+              <option value="">Все ученики</option>
+              <option value="risk">Требует внимания</option>
+              <option value="attention">Внимание</option>
+              <option value="ok">В норме</option>
+            </select>
           </div>
 
           {selectedIndividualIds.length > 0 && (
@@ -554,11 +651,17 @@ export function TeacherGroupsPage() {
                     <div>{r.nextLesson ? `Ближайшее занятие: ${fmtDate(r.nextLesson.startAt.slice(0, 10))} · ${r.nextLesson.startAt.slice(11, 16)}` : "Занятий не запланировано"}</div>
                     <div>Средний балл: {r.avg || "—"} · цель {r.goal}</div>
                     <div>Индивидуальных занятий: {r.lessonCount}</div>
+                    {scheduleSummary(r.scheduleSlots) && <div>Расписание: {scheduleSummary(r.scheduleSlots)}</div>}
+                    <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
+                      {r.scheduleSlots && r.scheduleSlots.length > 0 && !r.scheduleActive && <span className="tag tag-neutral" style={{ marginTop: 2 }}>Расписание неактивно</span>}
+                      {r.scheduleActive && r.scheduleEndDate && <span className="tag tag-neutral" style={{ marginTop: 2 }}>До {fmtDate(r.scheduleEndDate)}</span>}
+                    </div>
                   </div>
 
                   <div style={{ display: "flex", flexWrap: "wrap", gap: 6, marginTop: 10 }}>
                     <button type="button" className="btn btn-primary btn-sm" onClick={() => navigate(`/teacher/students/${r.id}`)}>Открыть</button>
                     <Link to={`/teacher/calendar?newLessonStudent=${r.id}`} className="btn btn-secondary btn-sm">Занятие</Link>
+                    <button type="button" className="btn btn-ghost btn-sm" onClick={() => openScheduleSettings(r)}>Настройки</button>
                   </div>
                 </div>
               ))}
@@ -874,6 +977,83 @@ export function TeacherGroupsPage() {
                 <label>Место / ссылка</label>
                 <input className="input" value={lessonLocation} onChange={(e) => setLessonLocation(e.target.value)} placeholder="Кабинет 12 или ссылка на звонок" />
               </div>
+            </div>
+          </div>
+        </Modal>
+      )}
+
+      {scheduleModalId && (
+        <Modal
+          title={`Расписание — ${individual.find((r) => r.id === scheduleModalId)?.name ?? ""}`}
+          onClose={() => setScheduleModalId(null)}
+          actions={
+            <>
+              <button type="button" className="btn btn-secondary" onClick={() => setScheduleModalId(null)}>Закрыть</button>
+              <button type="button" className="btn btn-primary" disabled={savingSchedule} onClick={saveIndivSchedule}>Сохранить</button>
+            </>
+          }
+        >
+          <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+            <div className="field">
+              <label>Предмет</label>
+              <select className="input" value={scheduleForm.subjectId} onChange={(e) => setScheduleForm((f) => ({ ...f, subjectId: e.target.value }))}>
+                <option value="">Не указан</option>
+                {SUBJECTS.map((sub) => <option key={sub.id} value={sub.id}>{sub.name}</option>)}
+              </select>
+            </div>
+            <div className="field">
+              <label>Расписание (необязательно)</label>
+              <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
+                {WEEKDAYS_SHORT.map((label, day) => (
+                  <button
+                    key={day}
+                    type="button"
+                    className="btn btn-sm"
+                    style={scheduleForm.slots.some((s) => s.day === day)
+                      ? { color: "var(--color-accent)", background: "var(--color-accent-100)", border: "1px solid var(--color-accent)" }
+                      : { background: "var(--color-surface-2)", border: "1px solid var(--color-line)" }}
+                    onClick={() => toggleIndivScheduleDay(day)}
+                  >
+                    {label}
+                  </button>
+                ))}
+              </div>
+              {scheduleForm.slots.length > 0 && (
+                <div style={{ display: "flex", flexDirection: "column", gap: 6, marginTop: 8 }}>
+                  {[...scheduleForm.slots].sort((a, b) => a.day - b.day).map((slot) => (
+                    <div key={slot.day} style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                      <span style={{ fontSize: 13.5, minWidth: 32 }}>{WEEKDAYS_SHORT[slot.day]}</span>
+                      <input
+                        className="input"
+                        type="time"
+                        style={{ maxWidth: 110 }}
+                        value={slot.time}
+                        onChange={(e) => setIndivScheduleTime(slot.day, e.target.value)}
+                      />
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+            <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
+              <div className="field" style={{ flex: 1, minWidth: 160 }}>
+                <label>Дата начала</label>
+                <input className="input" type="date" value={scheduleForm.startDate} onChange={(e) => setScheduleForm((f) => ({ ...f, startDate: e.target.value }))} />
+              </div>
+              <div className="field" style={{ flex: 1, minWidth: 160 }}>
+                <label>Дата окончания (необязательно)</label>
+                <input className="input" type="date" value={scheduleForm.endDate} onChange={(e) => setScheduleForm((f) => ({ ...f, endDate: e.target.value }))} />
+              </div>
+            </div>
+            <label style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 13.5 }}>
+              <input type="checkbox" checked={scheduleForm.active} onChange={(e) => setScheduleForm((f) => ({ ...f, active: e.target.checked }))} />
+              Расписание активно {!scheduleForm.active && "— занятия по расписанию будут удалены из календаря"}
+            </label>
+            <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
+              <button type="button" className="btn btn-secondary btn-sm" disabled={scheduleForm.slots.length === 0 || savingSchedule} onClick={generateIndivLessons}>
+                Внести в календарь
+              </button>
+              {scheduleForm.slots.length === 0 && <span className="card-meta">Сначала укажите дни расписания выше</span>}
             </div>
           </div>
         </Modal>
