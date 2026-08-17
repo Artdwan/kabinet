@@ -27,7 +27,7 @@ interface LessonRow {
 }
 
 interface LessonDetail extends LessonRow {
-  attendance: { studentId: string; name: string; status: "present" | "absent" | "excused" | null; origin: "scheduled" | "manual" }[];
+  attendance: { studentId: string; name: string; status: "present" | "absent" | "excused" | null; origin: "scheduled" | "manual"; expectation: "expected" | "excused" | "optional" }[];
 }
 
 interface GroupRow {
@@ -805,6 +805,7 @@ export function TeacherCalendarPage() {
                     <span style={{ fontSize: 13.5, display: "flex", alignItems: "center", gap: 6 }}>
                       {a.name}
                       {a.origin === "manual" && <span className="tag tag-neutral" style={{ fontSize: 10.5 }}>гость</span>}
+                      {a.expectation === "excused" && <span className="tag tag-neutral" style={{ fontSize: 10.5 }}>заморожен</span>}
                     </span>
                     <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
                       <div className="seg">

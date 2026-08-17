@@ -6,6 +6,7 @@ import { api, ApiError } from "../../services/apiClient";
 import { useToast } from "../../services/ToastContext";
 import { fmtDate } from "../../services/mockApi";
 import { MetricCard } from "../../components/MetricCard";
+import { Modal } from "../../components/Modal";
 import { SUBJECTS } from "../../data/content";
 
 interface StudentRow {
@@ -19,6 +20,14 @@ interface StudentRow {
   lastActive: string | null;
   attendancePct: number | null;
   risk: "ok" | "attention" | "risk";
+}
+
+interface FreezeRow {
+  id: string;
+  studentId: string;
+  startDate: string;
+  endDate: string;
+  reason: string | null;
 }
 
 interface WeakTopic {
@@ -111,6 +120,7 @@ export function TeacherGroupWorkspacePage() {
   const { data: lessons = [] } = useApiData<LessonRow[]>(`/teacher/lessons?groupId=${id}`);
   const { data: materials = [], reload: reloadMaterials } = useApiData<MaterialRow[]>(`/teacher/materials?groupId=${id}`);
   const { data: invites = [], reload: reloadInvites } = useApiData<PendingInvite[]>("/teacher/student-invites");
+  const { data: freezes = [], reload: reloadFreezes } = useApiData<FreezeRow[]>(id ? `/teacher/groups/${id}/freezes` : "");
   const [tab, setTab] = useState<Tab>("overview");
 
   const [materialTitle, setMaterialTitle] = useState("");
@@ -118,6 +128,46 @@ export function TeacherGroupWorkspacePage() {
   const [materialUrl, setMaterialUrl] = useState("");
   const [savingMaterial, setSavingMaterial] = useState(false);
   const [copiedToken, setCopiedToken] = useState<string | null>(null);
+
+  const [freezeStudentId, setFreezeStudentId] = useState<string | null>(null);
+  const [freezeStart, setFreezeStart] = useState("");
+  const [freezeEnd, setFreezeEnd] = useState("");
+  const [freezeReason, setFreezeReason] = useState("");
+  const [savingFreeze, setSavingFreeze] = useState(false);
+
+  const todayKey = new Date().toISOString().slice(0, 10);
+  const activeFreezeFor = (studentId: string) => freezes.find((f) => f.studentId === studentId && f.startDate <= todayKey && todayKey <= f.endDate);
+
+  const openFreeze = (studentId: string) => {
+    setFreezeStudentId(studentId);
+    setFreezeStart(""); setFreezeEnd(""); setFreezeReason("");
+  };
+
+  const addFreeze = async () => {
+    if (!id || !freezeStudentId || !freezeStart || !freezeEnd) return;
+    setSavingFreeze(true);
+    try {
+      await api.post(`/teacher/groups/${id}/members/${freezeStudentId}/freeze`, { startDate: freezeStart, endDate: freezeEnd, reason: freezeReason.trim() || undefined });
+      show("Заморозка добавлена", "ok");
+      setFreezeStudentId(null);
+      reloadFreezes();
+    } catch (e) {
+      show(e instanceof ApiError ? e.message : "Не удалось добавить заморозку", "bad");
+    } finally {
+      setSavingFreeze(false);
+    }
+  };
+
+  const removeFreeze = async (freezeId: string) => {
+    if (!id) return;
+    try {
+      await api.del(`/teacher/groups/${id}/freezes/${freezeId}`);
+      show("Заморозка снята", "ok");
+      reloadFreezes();
+    } catch (e) {
+      show(e instanceof ApiError ? e.message : "Не удалось снять заморозку", "bad");
+    }
+  };
 
   const copyInviteLink = async (token: string) => {
     try {
@@ -281,20 +331,34 @@ export function TeacherGroupWorkspacePage() {
                 <th>Средний балл</th>
                 <th>Последняя активность</th>
                 <th>Статус</th>
+                <th>Заморозка</th>
               </tr>
             </thead>
             <tbody>
-              {g.students.map((s) => (
-                <tr key={s.id} onClick={() => navigate(`/teacher/students/${s.id}`)} style={{ cursor: "pointer" }}>
-                  <td>{s.name}</td>
-                  <td>{s.attendancePct === null ? "—" : `${s.attendancePct}%`}</td>
-                  <td>{s.done}/{s.total}{s.overdue > 0 ? ` (${s.overdue} просрочено)` : ""}</td>
-                  <td>{s.avg || "—"}</td>
-                  <td>{s.lastActive ? fmtDate(s.lastActive.slice(0, 10)) : "—"}</td>
-                  <td><span className={`tag ${RISK_LABEL[s.risk].cls}`}>{RISK_LABEL[s.risk].label}</span></td>
-                </tr>
-              ))}
-              {g.students.length === 0 && <tr><td colSpan={6} className="card-meta">В группе пока нет учеников.</td></tr>}
+              {g.students.map((s) => {
+                const freeze = activeFreezeFor(s.id);
+                return (
+                  <tr key={s.id} onClick={() => navigate(`/teacher/students/${s.id}`)} style={{ cursor: "pointer" }}>
+                    <td>{s.name}</td>
+                    <td>{s.attendancePct === null ? "—" : `${s.attendancePct}%`}</td>
+                    <td>{s.done}/{s.total}{s.overdue > 0 ? ` (${s.overdue} просрочено)` : ""}</td>
+                    <td>{s.avg || "—"}</td>
+                    <td>{s.lastActive ? fmtDate(s.lastActive.slice(0, 10)) : "—"}</td>
+                    <td><span className={`tag ${RISK_LABEL[s.risk].cls}`}>{RISK_LABEL[s.risk].label}</span></td>
+                    <td onClick={(e) => e.stopPropagation()}>
+                      {freeze ? (
+                        <span style={{ display: "inline-flex", alignItems: "center", gap: 6 }}>
+                          <span className="tag tag-neutral">До {fmtDate(freeze.endDate)}</span>
+                          <button type="button" className="btn btn-ghost btn-sm" onClick={() => removeFreeze(freeze.id)}>Снять</button>
+                        </span>
+                      ) : (
+                        <button type="button" className="btn btn-ghost btn-sm" onClick={() => openFreeze(s.id)}>Заморозить</button>
+                      )}
+                    </td>
+                  </tr>
+                );
+              })}
+              {g.students.length === 0 && <tr><td colSpan={7} className="card-meta">В группе пока нет учеников.</td></tr>}
             </tbody>
           </table>
         </div>
@@ -418,6 +482,39 @@ export function TeacherGroupWorkspacePage() {
             </div>
           </div>
         </div>
+      )}
+
+      {freezeStudentId && (
+        <Modal
+          title={`Заморозить — ${g.students.find((s) => s.id === freezeStudentId)?.name ?? ""}`}
+          onClose={() => setFreezeStudentId(null)}
+          actions={
+            <>
+              <button type="button" className="btn btn-secondary" onClick={() => setFreezeStudentId(null)}>Закрыть</button>
+              <button type="button" className="btn btn-primary" disabled={!freezeStart || !freezeEnd || savingFreeze} onClick={addFreeze}>Заморозить</button>
+            </>
+          }
+        >
+          <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+            <p className="card-meta" style={{ margin: 0 }}>
+              На этот период занятия группы не будут засчитываться ученику как пропущенные — он останется в группе, но не будет считаться обязанным присутствовать.
+            </p>
+            <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
+              <div className="field" style={{ flex: 1, minWidth: 150 }}>
+                <label>С</label>
+                <input className="input" type="date" value={freezeStart} onChange={(e) => setFreezeStart(e.target.value)} />
+              </div>
+              <div className="field" style={{ flex: 1, minWidth: 150 }}>
+                <label>По</label>
+                <input className="input" type="date" value={freezeEnd} onChange={(e) => setFreezeEnd(e.target.value)} />
+              </div>
+            </div>
+            <div className="field">
+              <label>Причина (необязательно)</label>
+              <input className="input" value={freezeReason} onChange={(e) => setFreezeReason(e.target.value)} placeholder="Например, болезнь" />
+            </div>
+          </div>
+        </Modal>
       )}
     </div>
   );

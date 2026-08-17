@@ -85,6 +85,21 @@ export const groupPauses = sqliteTable("group_pauses", {
   createdAt: text("created_at").notNull(),
 });
 
+// A temporary pause within an otherwise-active group membership (illness, travel, etc.) — unlike
+// leaving the group, the student stays a member and reappears on the roster once the window ends.
+// A lesson planned inside the window doesn't count against the student's attendance: they're
+// still visible on the roster (no history gap) but their expectation is "excused" rather than
+// "expected", so the lesson is excluded from the attendance-rate denominator.
+export const studentFreezes = sqliteTable("student_freezes", {
+  id: text("id").primaryKey(),
+  groupId: text("group_id").notNull().references(() => groups.id),
+  studentId: text("student_id").notNull().references(() => users.id),
+  startDate: text("start_date").notNull(),
+  endDate: text("end_date").notNull(),
+  reason: text("reason"),
+  createdAt: text("created_at").notNull(),
+});
+
 // Deprecated, superseded by groupMemberships (which carries join/leave dates). Left in place —
 // unused by app code — as a historical record of the flat pre-migration membership data.
 export const groupMembers = sqliteTable(
