@@ -158,6 +158,21 @@ export const lessonAttendance = sqliteTable(
   (t) => [primaryKey({ columns: [t.lessonId, t.studentId] })],
 );
 
+// A lesson's roster is computed by default from group membership at its plannedStart. An
+// override lets the teacher deviate for one specific occurrence without touching membership or
+// the schedule template: "include" adds someone who wouldn't otherwise be there (a guest, or a
+// student added after the fact), "exclude" drops someone the default roster would include.
+export const lessonParticipantOverrides = sqliteTable(
+  "lesson_participant_overrides",
+  {
+    lessonId: text("lesson_id").notNull().references(() => lessons.id),
+    studentId: text("student_id").notNull().references(() => users.id),
+    action: text("action", { enum: ["include", "exclude"] }).notNull(),
+    createdAt: text("created_at").notNull(),
+  },
+  (t) => [primaryKey({ columns: [t.lessonId, t.studentId] })],
+);
+
 // ---------------------------------------------------------------------------
 // Content (global, seeded; read-only via API — a future authoring UI would
 // write here without changing anything below this section)

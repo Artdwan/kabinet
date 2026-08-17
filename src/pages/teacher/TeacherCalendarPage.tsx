@@ -26,7 +26,7 @@ interface LessonRow {
 }
 
 interface LessonDetail extends LessonRow {
-  attendance: { studentId: string; name: string; status: "present" | "absent" | "excused" | null }[];
+  attendance: { studentId: string; name: string; status: "present" | "absent" | "excused" | null; origin: "scheduled" | "manual" }[];
 }
 
 interface GroupRow {
@@ -225,6 +225,7 @@ export function TeacherCalendarPage() {
   const { data: detail, reload: reloadDetail } = useApiData<LessonDetail>(detailId ? `/teacher/lessons/${detailId}` : "", [detailId]);
   const [attendanceDraft, setAttendanceDraft] = useState<Record<string, "present" | "absent" | "excused">>({});
   const [savingAttendance, setSavingAttendance] = useState(false);
+  const [addParticipantId, setAddParticipantId] = useState("");
 
   useEffect(() => {
     if (detail) {
@@ -283,6 +284,27 @@ export function TeacherCalendarPage() {
       show(e instanceof ApiError ? e.message : "Не удалось сохранить", "bad");
     } finally {
       setSavingAttendance(false);
+    }
+  };
+
+  const addParticipant = async (studentId: string) => {
+    if (!detail) return;
+    try {
+      await api.post(`/teacher/lessons/${detail.id}/participants`, { studentId, action: "include" });
+      setAddParticipantId("");
+      reloadDetail();
+    } catch (e) {
+      show(e instanceof ApiError ? e.message : "Не удалось добавить ученика", "bad");
+    }
+  };
+
+  const removeParticipant = async (studentId: string) => {
+    if (!detail) return;
+    try {
+      await api.post(`/teacher/lessons/${detail.id}/participants`, { studentId, action: "exclude" });
+      reloadDetail();
+    } catch (e) {
+      show(e instanceof ApiError ? e.message : "Не удалось убрать ученика", "bad");
     }
   };
 
@@ -753,23 +775,40 @@ export function TeacherCalendarPage() {
               <div style={{ display: "flex", flexDirection: "column", gap: 6, marginTop: 6 }}>
                 {detail.attendance.map((a) => (
                   <div key={a.studentId} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 8 }}>
-                    <span style={{ fontSize: 13.5 }}>{a.name}</span>
-                    <div className="seg">
-                      {(["present", "absent", "excused"] as const).map((st) => (
-                        <button
-                          key={st}
-                          type="button"
-                          className="seg-opt"
-                          style={attendanceDraft[a.studentId] === st ? { color: "var(--color-accent)", background: "var(--color-accent-100)" } : undefined}
-                          onClick={() => setAttendanceDraft((d) => ({ ...d, [a.studentId]: st }))}
-                        >
-                          {st === "present" ? "Был" : st === "absent" ? "Не был" : "Уваж."}
-                        </button>
-                      ))}
+                    <span style={{ fontSize: 13.5, display: "flex", alignItems: "center", gap: 6 }}>
+                      {a.name}
+                      {a.origin === "manual" && <span className="tag tag-neutral" style={{ fontSize: 10.5 }}>гость</span>}
+                    </span>
+                    <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                      <div className="seg">
+                        {(["present", "absent", "excused"] as const).map((st) => (
+                          <button
+                            key={st}
+                            type="button"
+                            className="seg-opt"
+                            style={attendanceDraft[a.studentId] === st ? { color: "var(--color-accent)", background: "var(--color-accent-100)" } : undefined}
+                            onClick={() => setAttendanceDraft((d) => ({ ...d, [a.studentId]: st }))}
+                          >
+                            {st === "present" ? "Был" : st === "absent" ? "Не был" : "Уваж."}
+                          </button>
+                        ))}
+                      </div>
+                      <button type="button" onClick={() => removeParticipant(a.studentId)} title="Убрать из этого занятия" style={{ border: "none", background: "none", cursor: "pointer", color: "var(--color-text-3)", fontSize: 15, padding: "0 2px" }}>×</button>
                     </div>
                   </div>
                 ))}
                 {detail.attendance.length === 0 && <div className="card-meta">Нет участников.</div>}
+              </div>
+              <div style={{ display: "flex", gap: 6, marginTop: 10 }}>
+                <select className="input" style={{ flex: 1, fontSize: 12.5 }} value={addParticipantId} onChange={(e) => setAddParticipantId(e.target.value)}>
+                  <option value="">Добавить ученика...</option>
+                  {roster.filter((r) => !detail.attendance.some((a) => a.studentId === r.id)).map((r) => (
+                    <option key={r.id} value={r.id}>{r.name}</option>
+                  ))}
+                </select>
+                <button type="button" className="btn btn-secondary btn-sm" disabled={!addParticipantId} onClick={() => addParticipant(addParticipantId)}>
+                  Добавить
+                </button>
               </div>
             </div>
           </div>

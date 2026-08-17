@@ -416,6 +416,7 @@ teacherRouter.delete("/groups/:id", (req: AuthedRequest, res) => {
     const lessonIds = tx.select({ id: s.lessons.id }).from(s.lessons).where(eq(s.lessons.groupId, groupId)).all().map((l) => l.id);
     if (lessonIds.length) {
       tx.delete(s.lessonAttendance).where(inArray(s.lessonAttendance.lessonId, lessonIds)).run();
+      tx.delete(s.lessonParticipantOverrides).where(inArray(s.lessonParticipantOverrides.lessonId, lessonIds)).run();
       tx.delete(s.lessons).where(eq(s.lessons.groupId, groupId)).run();
     }
     tx.delete(s.materials).where(eq(s.materials.groupId, groupId)).run();
@@ -638,15 +639,29 @@ teacherRouter.delete("/groups/:groupId/members/:studentId", (req: AuthedRequest,
 // Who belongs to this lesson: for a group lesson, whoever's membership period covered its
 // planned date (not wherever it may have been moved to) — a student who joined or left the
 // group doesn't retroactively gain or lose lessons that already happened before/after that.
-function lessonParticipants(lesson: typeof s.lessons.$inferSelect): string[] {
+// On top of that default roster, per-lesson overrides let the teacher add a guest/latecomer or
+// drop someone for just this one occurrence, without touching membership or the schedule.
+function lessonParticipantsWithOrigin(lesson: typeof s.lessons.$inferSelect): { studentId: string; origin: "scheduled" | "manual" }[] {
+  let base: string[];
   if (lesson.groupId) {
     const referenceDate = (lesson.plannedStart ?? lesson.startAt).slice(0, 10);
-    return db.select().from(s.groupMemberships).where(eq(s.groupMemberships.groupId, lesson.groupId)).all()
+    base = db.select().from(s.groupMemberships).where(eq(s.groupMemberships.groupId, lesson.groupId)).all()
       .filter((m) => m.joinedAt <= referenceDate && (!m.leftAt || m.leftAt >= referenceDate))
       .map((m) => m.studentUserId);
+  } else if (lesson.studentId) {
+    base = [lesson.studentId];
+  } else {
+    base = [];
   }
-  if (lesson.studentId) return [lesson.studentId];
-  return [];
+
+  const overrides = db.select().from(s.lessonParticipantOverrides).where(eq(s.lessonParticipantOverrides.lessonId, lesson.id)).all();
+  const excluded = new Set(overrides.filter((o) => o.action === "exclude").map((o) => o.studentId));
+  const included = overrides.filter((o) => o.action === "include").map((o) => o.studentId);
+
+  const result = new Map<string, "scheduled" | "manual">();
+  base.forEach((id) => { if (!excluded.has(id)) result.set(id, "scheduled"); });
+  included.forEach((id) => result.set(id, "manual"));
+  return Array.from(result.entries()).map(([studentId, origin]) => ({ studentId, origin }));
 }
 
 function serializeLesson(lesson: typeof s.lessons.$inferSelect) {
@@ -678,14 +693,34 @@ teacherRouter.get("/lessons/:id", (req: AuthedRequest, res) => {
   const teacherId = req.auth!.sub;
   const lesson = db.select().from(s.lessons).where(and(eq(s.lessons.id, pstr(req.params.id)), eq(s.lessons.teacherId, teacherId))).get();
   if (!lesson) return res.status(404).json({ error: "Занятие не найдено" });
-  const participantIds = lessonParticipants(lesson);
+  const participants = lessonParticipantsWithOrigin(lesson);
   const attendanceRows = db.select().from(s.lessonAttendance).where(eq(s.lessonAttendance.lessonId, lesson.id)).all();
-  const attendance = participantIds.map((id) => {
+  const attendance = participants.map(({ studentId: id, origin }) => {
     const user = db.select().from(s.users).where(eq(s.users.id, id)).get();
     const row = attendanceRows.find((a) => a.studentId === id);
-    return { studentId: id, name: user ? `${user.name} ${user.lastName}`.trim() : id, status: row?.status ?? null };
+    return { studentId: id, name: user ? `${user.name} ${user.lastName}`.trim() : id, status: row?.status ?? null, origin };
   });
   res.json({ ...serializeLesson(lesson), attendance });
+});
+
+teacherRouter.post("/lessons/:id/participants", (req: AuthedRequest, res) => {
+  const teacherId = req.auth!.sub;
+  const lessonId = pstr(req.params.id);
+  const lesson = db.select().from(s.lessons).where(and(eq(s.lessons.id, lessonId), eq(s.lessons.teacherId, teacherId))).get();
+  if (!lesson) return res.status(404).json({ error: "Занятие не найдено" });
+
+  const { studentId, action } = req.body || {};
+  if (!studentId || !teacherStudentIds(teacherId).includes(studentId)) return res.status(404).json({ error: "Ученик не найден" });
+  if (!["include", "exclude", "reset"].includes(action)) return res.status(400).json({ error: "Некорректное действие" });
+
+  db.delete(s.lessonParticipantOverrides).where(and(eq(s.lessonParticipantOverrides.lessonId, lessonId), eq(s.lessonParticipantOverrides.studentId, studentId))).run();
+  if (action !== "reset") {
+    db.insert(s.lessonParticipantOverrides).values({ lessonId, studentId, action, createdAt: new Date().toISOString() }).run();
+  }
+  if (action === "exclude") {
+    db.delete(s.lessonAttendance).where(and(eq(s.lessonAttendance.lessonId, lessonId), eq(s.lessonAttendance.studentId, studentId))).run();
+  }
+  res.json({ ok: true });
 });
 
 teacherRouter.post("/lessons", (req: AuthedRequest, res) => {
@@ -788,6 +823,7 @@ teacherRouter.delete("/lessons/:id", (req: AuthedRequest, res) => {
     db.update(s.lessons).set({ status: "cancelled", overrideType: "cancelled" }).where(eq(s.lessons.id, lessonId)).run();
   } else {
     db.delete(s.lessonAttendance).where(eq(s.lessonAttendance.lessonId, lessonId)).run();
+    db.delete(s.lessonParticipantOverrides).where(eq(s.lessonParticipantOverrides.lessonId, lessonId)).run();
     db.delete(s.lessons).where(eq(s.lessons.id, lessonId)).run();
   }
   res.json({ ok: true });
@@ -1071,7 +1107,11 @@ teacherRouter.delete("/students/:id", (req: AuthedRequest, res) => {
   db.transaction((tx) => {
     const individualLessonIds = tx.select({ id: s.lessons.id }).from(s.lessons).where(eq(s.lessons.studentId, studentId)).all().map((l) => l.id);
     tx.delete(s.lessonAttendance).where(eq(s.lessonAttendance.studentId, studentId)).run();
-    if (individualLessonIds.length) tx.delete(s.lessons).where(inArray(s.lessons.id, individualLessonIds)).run();
+    tx.delete(s.lessonParticipantOverrides).where(eq(s.lessonParticipantOverrides.studentId, studentId)).run();
+    if (individualLessonIds.length) {
+      tx.delete(s.lessonParticipantOverrides).where(inArray(s.lessonParticipantOverrides.lessonId, individualLessonIds)).run();
+      tx.delete(s.lessons).where(inArray(s.lessons.id, individualLessonIds)).run();
+    }
     tx.delete(s.groupMemberships).where(eq(s.groupMemberships.studentUserId, studentId)).run();
     tx.delete(s.studentInvites).where(eq(s.studentInvites.acceptedUserId, studentId)).run();
     tx.delete(s.homeworkState).where(eq(s.homeworkState.studentId, studentId)).run();

@@ -113,6 +113,13 @@
       "when": 1786924625393,
       "tag": "0015_premium_gideon",
       "breakpoints": true
+    },
+    {
+      "idx": 16,
+      "version": "6",
+      "when": 1786925516414,
+      "tag": "0016_bent_enchantress",
+      "breakpoints": true
     }
   ]
 }
