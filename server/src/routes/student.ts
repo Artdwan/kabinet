@@ -422,8 +422,8 @@ studentRouter.post("/join-group", (req: AuthedRequest, res) => {
   const group = db.select().from(s.groups).where(eq(s.groups.id, groupId)).get();
   if (!group) return res.status(404).json({ error: "Группа не найдена" });
 
-  const already = db.select().from(s.groupMembers).where(and(eq(s.groupMembers.groupId, groupId), eq(s.groupMembers.studentUserId, studentId))).get();
-  if (!already) db.insert(s.groupMembers).values({ groupId, studentUserId: studentId }).run();
+  const already = db.select().from(s.groupMemberships).where(and(eq(s.groupMemberships.groupId, groupId), eq(s.groupMemberships.studentUserId, studentId), isNull(s.groupMemberships.leftAt))).get();
+  if (!already) db.insert(s.groupMemberships).values({ id: randomUUID(), groupId, studentUserId: studentId, joinedAt: new Date().toISOString().slice(0, 10), leftAt: null }).run();
   db.update(s.students).set({ teacherId: group.teacherId }).where(and(eq(s.students.userId, studentId), isNull(s.students.teacherId))).run();
   res.json({ ok: true, groupName: group.name });
 });

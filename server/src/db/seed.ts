@@ -1,5 +1,6 @@
 import bcrypt from "bcryptjs";
 import { randomUUID } from "node:crypto";
+import { and, eq, isNull } from "drizzle-orm";
 import { db, sqlite } from "./client.js";
 import * as s from "./schema.js";
 import { CT_TESTS, HOMEWORKS, REVIEW_CARD_DEFS, SUBJECTS, TECHNIQUES, THEORY_MATERIALS, TOPICS, TRAINERS } from "./seedContent.js";
@@ -24,6 +25,12 @@ function seedContent() {
   db.insert(s.reviewCardDefs).values(REVIEW_CARD_DEFS).onConflictDoNothing().run();
 }
 
+function upsertMembership(groupId: string, studentUserId: string) {
+  const active = db.select().from(s.groupMemberships).where(and(eq(s.groupMemberships.groupId, groupId), eq(s.groupMemberships.studentUserId, studentUserId), isNull(s.groupMemberships.leftAt))).get();
+  if (active) return;
+  db.insert(s.groupMemberships).values({ id: randomUUID(), groupId, studentUserId, joinedAt: now().slice(0, 10), leftAt: null }).run();
+}
+
 function upsertUser(u: { id: string; role: "student" | "teacher" | "parent"; email: string; password: string; name: string; lastName: string; extra: string }) {
   db.insert(s.users)
     .values({ id: u.id, role: u.role, email: u.email, passwordHash: hash(u.password), name: u.name, lastName: u.lastName, extra: u.extra, createdAt: now() })
@@ -44,8 +51,8 @@ function seedDemoAccounts() {
 
   db.insert(s.groups).values({ id: "gr-11a", name: "11 «А» · ЦТ математика", teacherId: "acc-tc", subjectId: "math" }).onConflictDoNothing().run();
   db.insert(s.groups).values({ id: "gr-chem", name: "Химия · интенсив", teacherId: "acc-tc", subjectId: "chem" }).onConflictDoNothing().run();
-  db.insert(s.groupMembers).values({ groupId: "gr-11a", studentUserId: "acc-st" }).onConflictDoNothing().run();
-  db.insert(s.groupMembers).values({ groupId: "gr-chem", studentUserId: "acc-st" }).onConflictDoNothing().run();
+  upsertMembership("gr-11a", "acc-st");
+  upsertMembership("gr-chem", "acc-st");
 
   // A few lightweight classmates so the teacher's roster/review queue isn't empty.
   const classmates = [
@@ -57,7 +64,7 @@ function seedDemoAccounts() {
   for (const c of classmates) {
     upsertUser({ id: c.id, role: "student", email: `${c.id}@demo`, password: DEMO_PASSWORD, name: c.name, lastName: c.lastName, extra: "11 класс" });
     db.insert(s.students).values({ userId: c.id, grade: 11, city: "Минск", goalScore: c.goal, teacherId: "acc-tc" }).onConflictDoNothing().run();
-    for (const g of c.groups) db.insert(s.groupMembers).values({ groupId: g, studentUserId: c.id }).onConflictDoNothing().run();
+    for (const g of c.groups) upsertMembership(g, c.id);
     c.results.forEach((score, i) => {
       db.insert(s.ctResults)
         .values({

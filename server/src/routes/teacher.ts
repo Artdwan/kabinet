@@ -13,11 +13,18 @@ teacherRouter.use(requireAuth, requireRole("teacher"));
 
 function teacherStudentIds(teacherId: string): string[] {
   const groupIds = db.select({ id: s.groups.id }).from(s.groups).where(eq(s.groups.teacherId, teacherId)).all().map((g) => g.id);
+  // Any membership period, past or present — a student who left a group is still this teacher's student.
   const fromGroups = groupIds.length
-    ? db.select().from(s.groupMembers).where(inArray(s.groupMembers.groupId, groupIds)).all().map((m) => m.studentUserId)
+    ? db.select({ id: s.groupMemberships.studentUserId }).from(s.groupMemberships).where(inArray(s.groupMemberships.groupId, groupIds)).all().map((m) => m.id)
     : [];
   const fromDirect = db.select({ id: s.students.userId }).from(s.students).where(eq(s.students.teacherId, teacherId)).all().map((r) => r.id);
   return Array.from(new Set([...fromGroups, ...fromDirect]));
+}
+
+// Students with an active (not-yet-left) membership period in the group — its current roster.
+function activeGroupMemberIds(groupId: string): string[] {
+  return db.select({ id: s.groupMemberships.studentUserId }).from(s.groupMemberships)
+    .where(and(eq(s.groupMemberships.groupId, groupId), isNull(s.groupMemberships.leftAt))).all().map((m) => m.id);
 }
 
 teacherRouter.get("/groups", (req: AuthedRequest, res) => {
@@ -36,7 +43,7 @@ teacherRouter.get("/groups", (req: AuthedRequest, res) => {
       .filter((l) => l.status === "done")
       .sort((a, b) => b.startAt.localeCompare(a.startAt))[0];
 
-    const studentIds = db.select().from(s.groupMembers).where(eq(s.groupMembers.groupId, g.id)).all().map((m) => m.studentUserId);
+    const studentIds = activeGroupMemberIds(g.id);
 
     const results = studentIds.flatMap((id) => db.select().from(s.ctResults).where(eq(s.ctResults.studentId, id)).all());
     const avgScore = results.length ? Math.round(results.reduce((sum, r) => sum + r.score, 0) / results.length) : 0;
@@ -82,7 +89,7 @@ teacherRouter.get("/groups/:id", (req: AuthedRequest, res) => {
   const group = db.select().from(s.groups).where(and(eq(s.groups.id, groupId), eq(s.groups.teacherId, teacherId))).get();
   if (!group) return res.status(404).json({ error: "Группа не найдена" });
 
-  const memberIds = db.select().from(s.groupMembers).where(eq(s.groupMembers.groupId, groupId)).all().map((m) => m.studentUserId);
+  const memberIds = activeGroupMemberIds(groupId);
   const allHomeworks = db.select().from(s.homeworks).all();
   const allExerciseIds = allHomeworks.flatMap((hw) => (hw.sections as any[]).filter((sc) => sc.kind === "exercises").flatMap((sc) => sc.exercises.map((e: any) => e.id)));
   const today = new Date().toISOString().slice(0, 10);
@@ -412,8 +419,18 @@ teacherRouter.delete("/groups/:id", (req: AuthedRequest, res) => {
       tx.delete(s.lessons).where(eq(s.lessons.groupId, groupId)).run();
     }
     tx.delete(s.materials).where(eq(s.materials.groupId, groupId)).run();
-    tx.delete(s.studentInvites).where(eq(s.studentInvites.groupId, groupId)).run();
-    tx.delete(s.groupMembers).where(eq(s.groupMembers.groupId, groupId)).run();
+    // An invite may target several groups via groupIds; only drop the ones that end up empty.
+    tx.select().from(s.studentInvites).where(eq(s.studentInvites.teacherId, teacherId)).all().forEach((inv) => {
+      const ids = (inv.groupIds as string[] | null) ?? (inv.groupId ? [inv.groupId] : []);
+      if (!ids.includes(groupId)) return;
+      const remaining = ids.filter((id) => id !== groupId);
+      if (remaining.length) {
+        tx.update(s.studentInvites).set({ groupIds: remaining, groupId: remaining[0] }).where(eq(s.studentInvites.token, inv.token)).run();
+      } else {
+        tx.delete(s.studentInvites).where(eq(s.studentInvites.token, inv.token)).run();
+      }
+    });
+    tx.delete(s.groupMemberships).where(eq(s.groupMemberships.groupId, groupId)).run();
     tx.delete(s.groups).where(eq(s.groups.id, groupId)).run();
   });
 
@@ -438,10 +455,10 @@ teacherRouter.post("/groups/:groupId/members", (req: AuthedRequest, res) => {
   }
   if (!student) return res.status(404).json({ error: "Ученик не найден" });
 
-  const already = db.select().from(s.groupMembers).where(and(eq(s.groupMembers.groupId, groupId), eq(s.groupMembers.studentUserId, student.id))).get();
+  const already = db.select().from(s.groupMemberships).where(and(eq(s.groupMemberships.groupId, groupId), eq(s.groupMemberships.studentUserId, student.id), isNull(s.groupMemberships.leftAt))).get();
   if (already) return res.status(409).json({ error: "Ученик уже в этой группе" });
 
-  db.insert(s.groupMembers).values({ groupId, studentUserId: student.id }).run();
+  db.insert(s.groupMemberships).values({ id: randomUUID(), groupId, studentUserId: student.id, joinedAt: new Date().toISOString().slice(0, 10), leftAt: null }).run();
   res.json({ ok: true, studentId: student.id, name: `${student.name} ${student.lastName}`.trim() });
 });
 
@@ -530,7 +547,8 @@ teacherRouter.post("/students", (req: AuthedRequest, res) => {
       scheduleLocation: scheduleLocation && String(scheduleLocation).trim() ? String(scheduleLocation).trim() : null,
     })
     .run();
-  validGroups.forEach((group) => db.insert(s.groupMembers).values({ groupId: group.id, studentUserId: id }).run());
+  const joinedAt = new Date().toISOString().slice(0, 10);
+  validGroups.forEach((group) => db.insert(s.groupMemberships).values({ id: randomUUID(), groupId: group.id, studentUserId: id, joinedAt, leftAt: null }).run());
 
   res.json({ id, email: String(email).trim(), password, name: String(name).trim(), lastName: String(lastName || "").trim() });
 });
@@ -608,12 +626,25 @@ teacherRouter.delete("/groups/:groupId/members/:studentId", (req: AuthedRequest,
   const studentId = pstr(req.params.studentId);
   const group = db.select().from(s.groups).where(and(eq(s.groups.id, groupId), eq(s.groups.teacherId, teacherId))).get();
   if (!group) return res.status(404).json({ error: "Группа не найдена" });
-  db.delete(s.groupMembers).where(and(eq(s.groupMembers.groupId, groupId), eq(s.groupMembers.studentUserId, studentId))).run();
+  // Leaving a group closes the current membership period rather than erasing it, so past
+  // lessons keep remembering who was actually enrolled at the time.
+  db.update(s.groupMemberships)
+    .set({ leftAt: new Date().toISOString().slice(0, 10) })
+    .where(and(eq(s.groupMemberships.groupId, groupId), eq(s.groupMemberships.studentUserId, studentId), isNull(s.groupMemberships.leftAt)))
+    .run();
   res.json({ ok: true });
 });
 
+// Who belongs to this lesson: for a group lesson, whoever's membership period covered its
+// planned date (not wherever it may have been moved to) — a student who joined or left the
+// group doesn't retroactively gain or lose lessons that already happened before/after that.
 function lessonParticipants(lesson: typeof s.lessons.$inferSelect): string[] {
-  if (lesson.groupId) return db.select().from(s.groupMembers).where(eq(s.groupMembers.groupId, lesson.groupId)).all().map((m) => m.studentUserId);
+  if (lesson.groupId) {
+    const referenceDate = (lesson.plannedStart ?? lesson.startAt).slice(0, 10);
+    return db.select().from(s.groupMemberships).where(eq(s.groupMemberships.groupId, lesson.groupId)).all()
+      .filter((m) => m.joinedAt <= referenceDate && (!m.leftAt || m.leftAt >= referenceDate))
+      .map((m) => m.studentUserId);
+  }
   if (lesson.studentId) return [lesson.studentId];
   return [];
 }
@@ -809,7 +840,7 @@ teacherRouter.get("/roster", (req: AuthedRequest, res) => {
       return hw.dueAt < today && !st?.submittedAt;
     }).length;
 
-    const memberGroups = myGroups.filter((g) => db.select().from(s.groupMembers).where(and(eq(s.groupMembers.groupId, g.id), eq(s.groupMembers.studentUserId, id))).get());
+    const memberGroups = myGroups.filter((g) => db.select().from(s.groupMemberships).where(and(eq(s.groupMemberships.groupId, g.id), eq(s.groupMemberships.studentUserId, id), isNull(s.groupMemberships.leftAt))).get());
 
     // Weak topic: lowest-scoring topic across this student's own CT results.
     const topicSums = new Map<string, { sum: number; n: number }>();
@@ -893,7 +924,7 @@ teacherRouter.get("/students/:id", (req: AuthedRequest, res) => {
   const student = db.select().from(s.students).where(eq(s.students.userId, studentId)).get();
   const myGroups = db.select().from(s.groups).where(eq(s.groups.teacherId, teacherId)).all();
   const groups = myGroups
-    .filter((g) => db.select().from(s.groupMembers).where(and(eq(s.groupMembers.groupId, g.id), eq(s.groupMembers.studentUserId, studentId))).get())
+    .filter((g) => db.select().from(s.groupMemberships).where(and(eq(s.groupMemberships.groupId, g.id), eq(s.groupMemberships.studentUserId, studentId), isNull(s.groupMemberships.leftAt))).get())
     .map((g) => ({ id: g.id, name: g.name }));
 
   const allHomeworks = db.select().from(s.homeworks).all();
@@ -1041,7 +1072,7 @@ teacherRouter.delete("/students/:id", (req: AuthedRequest, res) => {
     const individualLessonIds = tx.select({ id: s.lessons.id }).from(s.lessons).where(eq(s.lessons.studentId, studentId)).all().map((l) => l.id);
     tx.delete(s.lessonAttendance).where(eq(s.lessonAttendance.studentId, studentId)).run();
     if (individualLessonIds.length) tx.delete(s.lessons).where(inArray(s.lessons.id, individualLessonIds)).run();
-    tx.delete(s.groupMembers).where(eq(s.groupMembers.studentUserId, studentId)).run();
+    tx.delete(s.groupMemberships).where(eq(s.groupMemberships.studentUserId, studentId)).run();
     tx.delete(s.studentInvites).where(eq(s.studentInvites.acceptedUserId, studentId)).run();
     tx.delete(s.homeworkState).where(eq(s.homeworkState.studentId, studentId)).run();
     tx.delete(s.homeworkAttempts).where(eq(s.homeworkAttempts.studentId, studentId)).run();

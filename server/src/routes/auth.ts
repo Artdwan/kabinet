@@ -73,7 +73,8 @@ authRouter.post("/register", async (req, res) => {
       .run();
     if (invite) {
       const groupIds = (invite.groupIds as string[] | null) ?? (invite.groupId ? [invite.groupId] : []);
-      groupIds.forEach((groupId) => db.insert(s.groupMembers).values({ groupId, studentUserId: id }).run());
+      const joinedAt = new Date().toISOString().slice(0, 10);
+      groupIds.forEach((groupId) => db.insert(s.groupMemberships).values({ id: randomUUID(), groupId, studentUserId: id, joinedAt, leftAt: null }).run());
       db.update(s.studentInvites).set({ acceptedUserId: id, acceptedAt: new Date().toISOString() }).where(eq(s.studentInvites.token, invite.token)).run();
     }
   }

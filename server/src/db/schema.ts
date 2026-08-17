@@ -73,6 +73,8 @@ export const groups = sqliteTable("groups", {
   hwDefaults: text("hw_defaults", { mode: "json" }), // { dueDays, hintsAllowed, showSolutions, maxAttempts, remindersEnabled }
 });
 
+// Deprecated, superseded by groupMemberships (which carries join/leave dates). Left in place —
+// unused by app code — as a historical record of the flat pre-migration membership data.
 export const groupMembers = sqliteTable(
   "group_members",
   {
@@ -81,6 +83,17 @@ export const groupMembers = sqliteTable(
   },
   (t) => [primaryKey({ columns: [t.groupId, t.studentUserId] })],
 );
+
+// A student's participation in a group is a series of periods, not a single flag: leaving and
+// later rejoining creates a new period rather than reopening the old one, so history stays
+// unambiguous. A period with leftAt = null is the student's current (active) membership, if any.
+export const groupMemberships = sqliteTable("group_memberships", {
+  id: text("id").primaryKey(),
+  groupId: text("group_id").notNull().references(() => groups.id),
+  studentUserId: text("student_user_id").notNull().references(() => users.id),
+  joinedAt: text("joined_at").notNull(),
+  leftAt: text("left_at"),
+});
 
 export const studentInvites = sqliteTable("student_invites", {
   token: text("token").primaryKey(),
