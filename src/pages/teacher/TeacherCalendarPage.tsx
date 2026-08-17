@@ -19,6 +19,7 @@ interface LessonRow {
   format: "online" | "offline";
   location: string;
   status: "scheduled" | "done" | "cancelled";
+  cancelReason: "teacher" | "series_cancel" | "group_ended" | "group_paused" | "schedule_ended" | null;
   seriesId: string | null;
   note: string | null;
   plannedStart: string | null;
@@ -68,6 +69,14 @@ const STATUS_LABEL: Record<string, { label: string; cls: string }> = {
   scheduled: { label: "Запланировано", cls: "tag-accent" },
   done: { label: "Проведено", cls: "tag-ok" },
   cancelled: { label: "Отменено", cls: "tag-bad" },
+};
+
+const CANCEL_REASON_LABEL: Record<string, string> = {
+  teacher: "отменено вручную",
+  series_cancel: "серия отменена",
+  group_ended: "группа завершена",
+  group_paused: "каникулы",
+  schedule_ended: "расписание завершено",
 };
 
 const EVENT_COLORS = [
@@ -329,6 +338,18 @@ export function TeacherCalendarPage() {
       reload();
     } catch (e) {
       show(e instanceof ApiError ? e.message : "Не удалось удалить", "bad");
+    }
+  };
+
+  const restoreLesson = async () => {
+    if (!detail) return;
+    try {
+      await api.post(`/teacher/lessons/${detail.id}/restore`, {});
+      show("Занятие восстановлено", "ok");
+      reload();
+      reloadDetail();
+    } catch (e) {
+      show(e instanceof ApiError ? e.message : "Не удалось восстановить", "bad");
     }
   };
 
@@ -756,6 +777,9 @@ export function TeacherCalendarPage() {
                   {detail.seriesId ? "Отменить серию" : "Отменить"}
                 </button>
               )}
+              {detail.status === "cancelled" && (
+                <button type="button" className="btn btn-secondary" onClick={restoreLesson}>Восстановить</button>
+              )}
               <button type="button" className="btn btn-primary" disabled={savingAttendance} onClick={saveAttendance}>
                 Сохранить посещаемость
               </button>
@@ -766,6 +790,9 @@ export function TeacherCalendarPage() {
             <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
               <span className="card-meta">{detail.startAt.slice(0, 10)} · {detail.startAt.slice(11, 16)} · {detail.durationMinutes} мин</span>
               <span className={`tag ${STATUS_LABEL[detail.status].cls}`}>{STATUS_LABEL[detail.status].label}</span>
+              {detail.status === "cancelled" && detail.cancelReason && (
+                <span className="card-meta">({CANCEL_REASON_LABEL[detail.cancelReason] ?? detail.cancelReason})</span>
+              )}
             </div>
             {detail.title && <p className="card-body" style={{ margin: 0 }}>{detail.title}</p>}
             <p className="card-meta" style={{ margin: 0 }}>{detail.format === "online" ? "Онлайн" : "Очно"}{detail.location ? ` · ${detail.location}` : ""}</p>

@@ -83,6 +83,13 @@ interface ScheduleSlot {
   time: string;
 }
 
+interface PauseRow {
+  id: string;
+  startDate: string;
+  endDate: string;
+  reason: string | null;
+}
+
 function scheduleSummary(slots: ScheduleSlot[] | null): string | null {
   if (!slots || !slots.length) return null;
   return [...slots]
@@ -156,6 +163,12 @@ export function TeacherGroupsPage() {
   const [editingId, setEditingId] = useState<string | null>(null);
   const [form, setForm] = useState<GroupFormState>(emptyForm());
   const [saving, setSaving] = useState(false);
+
+  const { data: pauses = [], reload: reloadPauses } = useApiData<PauseRow[]>(editingId ? `/teacher/groups/${editingId}/pauses` : "", [editingId]);
+  const [pauseStart, setPauseStart] = useState("");
+  const [pauseEnd, setPauseEnd] = useState("");
+  const [pauseReason, setPauseReason] = useState("");
+  const [savingPause, setSavingPause] = useState(false);
 
   const [membersGroupId, setMembersGroupId] = useState<string | null>(null);
   const membersGroup = groups.find((g) => g.id === membersGroupId) ?? null;
@@ -338,6 +351,33 @@ export function TeacherGroupsPage() {
       show(e instanceof ApiError ? e.message : "Не удалось внести занятия в календарь", "bad");
     } finally {
       setSaving(false);
+    }
+  };
+
+  const addPause = async () => {
+    if (!editingId || !pauseStart || !pauseEnd) return;
+    setSavingPause(true);
+    try {
+      await api.post(`/teacher/groups/${editingId}/pauses`, { startDate: pauseStart, endDate: pauseEnd, reason: pauseReason.trim() || undefined });
+      show("Каникулы добавлены, занятия внутри периода отменены", "ok");
+      setPauseStart(""); setPauseEnd(""); setPauseReason("");
+      reloadPauses();
+      reloadGroups();
+    } catch (e) {
+      show(e instanceof ApiError ? e.message : "Не удалось добавить каникулы", "bad");
+    } finally {
+      setSavingPause(false);
+    }
+  };
+
+  const removePause = async (pauseId: string) => {
+    if (!editingId) return;
+    try {
+      await api.del(`/teacher/groups/${editingId}/pauses/${pauseId}`);
+      show("Каникулы удалены", "ok");
+      reloadPauses();
+    } catch (e) {
+      show(e instanceof ApiError ? e.message : "Не удалось удалить каникулы", "bad");
     }
   };
 
@@ -874,7 +914,7 @@ export function TeacherGroupsPage() {
             </div>
             <label style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 13.5 }}>
               <input type="checkbox" checked={form.active} onChange={(e) => setForm((f) => ({ ...f, active: e.target.checked }))} />
-              Группа активна {!form.active && "— занятия по расписанию из этой группы будут удалены из календаря"}
+              Группа активна {!form.active && "— будущие занятия по расписанию из этой группы будут отменены"}
             </label>
             {editingId && (
               <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
@@ -882,6 +922,28 @@ export function TeacherGroupsPage() {
                   Внести в календарь
                 </button>
                 {form.scheduleSlots.length === 0 && <span className="card-meta">Сначала укажите дни расписания выше</span>}
+              </div>
+            )}
+            {editingId && (
+              <div className="field">
+                <label>Каникулы (необязательно)</label>
+                {pauses.length > 0 && (
+                  <div style={{ display: "flex", flexDirection: "column", gap: 6, marginBottom: 8 }}>
+                    {pauses.map((p) => (
+                      <div key={p.id} style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8, fontSize: 13 }}>
+                        <span>{fmtDate(p.startDate)} — {fmtDate(p.endDate)}{p.reason ? ` · ${p.reason}` : ""}</span>
+                        <button type="button" className="btn btn-ghost btn-sm" onClick={() => removePause(p.id)}>Убрать</button>
+                      </div>
+                    ))}
+                  </div>
+                )}
+                <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
+                  <input className="input" type="date" style={{ maxWidth: 150 }} value={pauseStart} onChange={(e) => setPauseStart(e.target.value)} />
+                  <input className="input" type="date" style={{ maxWidth: 150 }} value={pauseEnd} onChange={(e) => setPauseEnd(e.target.value)} />
+                  <input className="input" style={{ flex: 1, minWidth: 120 }} value={pauseReason} onChange={(e) => setPauseReason(e.target.value)} placeholder="Например, зимние каникулы" />
+                  <button type="button" className="btn btn-secondary btn-sm" disabled={!pauseStart || !pauseEnd || savingPause} onClick={addPause}>Добавить</button>
+                </div>
+                <p className="card-meta" style={{ margin: "4px 0 0" }}>Занятия внутри периода будут отменены (без удаления), новые в этот период не создаются.</p>
               </div>
             )}
             <div className="field">

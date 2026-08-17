@@ -247,14 +247,20 @@ function enforceGroupLifecycle(groupId: string) {
     .filter((l) => l.startAt >= cutoff!)
     .map((l) => l.id);
   if (toCancel.length) {
-    db.update(s.lessons).set({ status: "cancelled", overrideType: "cancelled" }).where(inArray(s.lessons.id, toCancel)).run();
+    db.update(s.lessons).set({ status: "cancelled", overrideType: "cancelled", cancelReason: "group_ended" }).where(inArray(s.lessons.id, toCancel)).run();
   }
 }
 
+function isDateInGroupPause(groupId: string, dateStr: string): boolean {
+  return db.select().from(s.groupPauses).where(eq(s.groupPauses.groupId, groupId)).all()
+    .some((p) => p.startDate <= dateStr && dateStr <= p.endDate);
+}
+
 // Reconciles auto-generated (overrideType "none") future lessons against the group's current
-// schedule slots. Untouched placeholders for slots that no longer exist are removed outright —
-// nothing of value lives on them. Moved/cancelled/extra/custom occurrences are never touched:
-// manual overrides always win over the schedule template.
+// schedule slots and pause windows. Untouched placeholders for slots that no longer exist are
+// removed outright — nothing of value lives on them. Placeholders that now fall inside a pause
+// are cancelled instead, so the reason is remembered. Moved/cancelled/extra/custom occurrences
+// are never touched: manual overrides always win over the schedule template.
 function reconcileGroupScheduleLessons(groupId: string) {
   const group = db.select().from(s.groups).where(eq(s.groups.id, groupId)).get();
   if (!group) return;
@@ -264,21 +270,32 @@ function reconcileGroupScheduleLessons(groupId: string) {
   const seriesId = `group-schedule:${groupId}`;
   const nowIso = new Date().toISOString().slice(0, 16);
 
-  const toRemove = db
+  const untouchedFuture = db
     .select()
     .from(s.lessons)
     .where(and(eq(s.lessons.seriesId, seriesId), eq(s.lessons.status, "scheduled"), eq(s.lessons.overrideType, "none")))
     .all()
-    .filter((l) => (l.plannedStart ?? l.startAt) >= nowIso)
-    .filter((l) => {
-      const plannedStart = l.plannedStart ?? l.startAt;
-      const weekday = (new Date(plannedStart).getDay() + 6) % 7;
-      return slotsByDay.get(weekday) !== plannedStart.slice(11, 16);
-    })
-    .map((l) => l.id);
+    .filter((l) => (l.plannedStart ?? l.startAt) >= nowIso);
+
+  const toRemove: string[] = [];
+  const toCancelForPause: string[] = [];
+  untouchedFuture.forEach((l) => {
+    const plannedStart = l.plannedStart ?? l.startAt;
+    const weekday = (new Date(plannedStart).getDay() + 6) % 7;
+    if (slotsByDay.get(weekday) !== plannedStart.slice(11, 16)) {
+      toRemove.push(l.id);
+    } else if (isDateInGroupPause(groupId, plannedStart.slice(0, 10))) {
+      toCancelForPause.push(l.id);
+    }
+  });
+
   if (toRemove.length) {
     db.delete(s.lessonAttendance).where(inArray(s.lessonAttendance.lessonId, toRemove)).run();
+    db.delete(s.lessonParticipantOverrides).where(inArray(s.lessonParticipantOverrides.lessonId, toRemove)).run();
     db.delete(s.lessons).where(inArray(s.lessons.id, toRemove)).run();
+  }
+  if (toCancelForPause.length) {
+    db.update(s.lessons).set({ status: "cancelled", overrideType: "cancelled", cancelReason: "group_paused" }).where(inArray(s.lessons.id, toCancelForPause)).run();
   }
 }
 
@@ -327,7 +344,7 @@ function enforceStudentLessonLifecycle(studentId: string) {
     .filter((l) => l.startAt >= cutoff!)
     .map((l) => l.id);
   if (toCancel.length) {
-    db.update(s.lessons).set({ status: "cancelled", overrideType: "cancelled" }).where(inArray(s.lessons.id, toCancel)).run();
+    db.update(s.lessons).set({ status: "cancelled", overrideType: "cancelled", cancelReason: "schedule_ended" }).where(inArray(s.lessons.id, toCancel)).run();
   }
 }
 
@@ -386,8 +403,9 @@ teacherRouter.post("/groups/:id/generate-lessons", (req: AuthedRequest, res) => 
   while (cursor <= until) {
     const weekday = (cursor.getDay() + 6) % 7; // 0=Monday
     const time = slotsByDay.get(weekday);
-    if (time) {
-      const plannedStart = `${cursor.toISOString().slice(0, 10)}T${time}`;
+    const dateStr = cursor.toISOString().slice(0, 10);
+    if (time && !isDateInGroupPause(groupId, dateStr)) {
+      const plannedStart = `${dateStr}T${time}`;
       if (!existingPlanned.has(plannedStart)) {
         const id = randomUUID();
         db.insert(s.lessons)
@@ -406,6 +424,39 @@ teacherRouter.post("/groups/:id/generate-lessons", (req: AuthedRequest, res) => 
   res.json({ ok: true, created: created.length });
 });
 
+teacherRouter.get("/groups/:id/pauses", (req: AuthedRequest, res) => {
+  const teacherId = req.auth!.sub;
+  const groupId = pstr(req.params.id);
+  const group = db.select().from(s.groups).where(and(eq(s.groups.id, groupId), eq(s.groups.teacherId, teacherId))).get();
+  if (!group) return res.status(404).json({ error: "Группа не найдена" });
+  const pauses = db.select().from(s.groupPauses).where(eq(s.groupPauses.groupId, groupId)).all().sort((a, b) => a.startDate.localeCompare(b.startDate));
+  res.json(pauses);
+});
+
+teacherRouter.post("/groups/:id/pauses", (req: AuthedRequest, res) => {
+  const teacherId = req.auth!.sub;
+  const groupId = pstr(req.params.id);
+  const group = db.select().from(s.groups).where(and(eq(s.groups.id, groupId), eq(s.groups.teacherId, teacherId))).get();
+  if (!group) return res.status(404).json({ error: "Группа не найдена" });
+  const { startDate, endDate, reason } = req.body || {};
+  if (!startDate || !endDate) return res.status(400).json({ error: "Укажите даты начала и окончания" });
+  if (String(startDate) > String(endDate)) return res.status(400).json({ error: "Дата окончания раньше даты начала" });
+  const id = randomUUID();
+  db.insert(s.groupPauses).values({ id, groupId, startDate: String(startDate), endDate: String(endDate), reason: reason && String(reason).trim() ? String(reason).trim() : null, createdAt: new Date().toISOString() }).run();
+  reconcileGroupScheduleLessons(groupId);
+  res.json({ id, ok: true });
+});
+
+teacherRouter.delete("/groups/:groupId/pauses/:pauseId", (req: AuthedRequest, res) => {
+  const teacherId = req.auth!.sub;
+  const groupId = pstr(req.params.groupId);
+  const pauseId = pstr(req.params.pauseId);
+  const group = db.select().from(s.groups).where(and(eq(s.groups.id, groupId), eq(s.groups.teacherId, teacherId))).get();
+  if (!group) return res.status(404).json({ error: "Группа не найдена" });
+  db.delete(s.groupPauses).where(and(eq(s.groupPauses.id, pauseId), eq(s.groupPauses.groupId, groupId))).run();
+  res.json({ ok: true });
+});
+
 teacherRouter.delete("/groups/:id", (req: AuthedRequest, res) => {
   const teacherId = req.auth!.sub;
   const groupId = pstr(req.params.id);
@@ -420,6 +471,7 @@ teacherRouter.delete("/groups/:id", (req: AuthedRequest, res) => {
       tx.delete(s.lessons).where(eq(s.lessons.groupId, groupId)).run();
     }
     tx.delete(s.materials).where(eq(s.materials.groupId, groupId)).run();
+    tx.delete(s.groupPauses).where(eq(s.groupPauses.groupId, groupId)).run();
     // An invite may target several groups via groupIds; only drop the ones that end up empty.
     tx.select().from(s.studentInvites).where(eq(s.studentInvites.teacherId, teacherId)).all().forEach((inv) => {
       const ids = (inv.groupIds as string[] | null) ?? (inv.groupId ? [inv.groupId] : []);
@@ -672,7 +724,7 @@ function serializeLesson(lesson: typeof s.lessons.$inferSelect) {
     studentId: lesson.studentId, studentName: student ? `${student.name} ${student.lastName}`.trim() : null,
     title: lesson.title, startAt: lesson.startAt, plannedStart: lesson.plannedStart, overrideType: lesson.overrideType,
     durationMinutes: lesson.durationMinutes,
-    format: lesson.format, location: lesson.location, status: lesson.status, seriesId: lesson.seriesId, note: lesson.note,
+    format: lesson.format, location: lesson.location, status: lesson.status, cancelReason: lesson.cancelReason, seriesId: lesson.seriesId, note: lesson.note,
   };
 }
 
@@ -784,7 +836,7 @@ teacherRouter.patch("/lessons/:id", (req: AuthedRequest, res) => {
     // (past not yet marked done, or future) is marked cancelled. The calendar decides whether to
     // hide cancelled lessons from the grid views; the record itself is kept either way.
     db.update(s.lessons)
-      .set({ status: "cancelled", overrideType: "cancelled" })
+      .set({ status: "cancelled", overrideType: "cancelled", cancelReason: "series_cancel" })
       .where(and(eq(s.lessons.seriesId, lesson.seriesId), eq(s.lessons.teacherId, teacherId), eq(s.lessons.status, "scheduled")))
       .run();
   } else if (scope === "series" && lesson.seriesId) {
@@ -800,6 +852,7 @@ teacherRouter.patch("/lessons/:id", (req: AuthedRequest, res) => {
     // that isn't a status change is a "custom" override. Cancelling never deletes the row.
     if (status === "cancelled") {
       patch.overrideType = "cancelled";
+      patch.cancelReason = "teacher";
     } else if (startAt !== undefined && String(startAt) !== lesson.startAt) {
       if (lesson.overrideType === "none") patch.overrideType = "moved";
     } else if (lesson.overrideType === "none" && (title !== undefined || durationMinutes !== undefined || format !== undefined || location !== undefined)) {
@@ -820,12 +873,24 @@ teacherRouter.delete("/lessons/:id", (req: AuthedRequest, res) => {
     // Occurrences generated from a group/student schedule are never hard-deleted: the generator
     // matches on plannedStart, so a physically removed row would just reappear next regeneration.
     // "Delete" here means cancel — the calendar hides cancelled lessons from the grid views.
-    db.update(s.lessons).set({ status: "cancelled", overrideType: "cancelled" }).where(eq(s.lessons.id, lessonId)).run();
+    db.update(s.lessons).set({ status: "cancelled", overrideType: "cancelled", cancelReason: "teacher" }).where(eq(s.lessons.id, lessonId)).run();
   } else {
     db.delete(s.lessonAttendance).where(eq(s.lessonAttendance.lessonId, lessonId)).run();
     db.delete(s.lessonParticipantOverrides).where(eq(s.lessonParticipantOverrides.lessonId, lessonId)).run();
     db.delete(s.lessons).where(eq(s.lessons.id, lessonId)).run();
   }
+  res.json({ ok: true });
+});
+
+teacherRouter.post("/lessons/:id/restore", (req: AuthedRequest, res) => {
+  const teacherId = req.auth!.sub;
+  const lessonId = pstr(req.params.id);
+  const lesson = db.select().from(s.lessons).where(and(eq(s.lessons.id, lessonId), eq(s.lessons.teacherId, teacherId))).get();
+  if (!lesson) return res.status(404).json({ error: "Занятие не найдено" });
+  if (lesson.status !== "cancelled") return res.status(400).json({ error: "Занятие не отменено" });
+  const plannedStart = lesson.plannedStart ?? lesson.startAt;
+  const overrideType = lesson.startAt !== plannedStart ? "moved" : "none";
+  db.update(s.lessons).set({ status: "scheduled", overrideType, cancelReason: null }).where(eq(s.lessons.id, lessonId)).run();
   res.json({ ok: true });
 });
 

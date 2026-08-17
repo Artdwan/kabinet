@@ -73,6 +73,18 @@ export const groups = sqliteTable("groups", {
   hwDefaults: text("hw_defaults", { mode: "json" }), // { dueDays, hintsAllowed, showSolutions, maxAttempts, remindersEnabled }
 });
 
+// A holiday/break window for a group: the generator skips creating regular occurrences inside
+// it, and any already-materialized ones get cancelled (not deleted) with cancelReason
+// "group_paused". A manual "extra" lesson can still be scheduled inside a pause.
+export const groupPauses = sqliteTable("group_pauses", {
+  id: text("id").primaryKey(),
+  groupId: text("group_id").notNull().references(() => groups.id),
+  startDate: text("start_date").notNull(),
+  endDate: text("end_date").notNull(),
+  reason: text("reason"),
+  createdAt: text("created_at").notNull(),
+});
+
 // Deprecated, superseded by groupMemberships (which carries join/leave dates). Left in place —
 // unused by app code — as a historical record of the flat pre-migration membership data.
 export const groupMembers = sqliteTable(
@@ -132,6 +144,7 @@ export const lessons = sqliteTable("lessons", {
   format: text("format", { enum: ["online", "offline"] }).notNull().default("offline"),
   location: text("location").notNull().default(""),
   status: text("status", { enum: ["scheduled", "done", "cancelled"] }).notNull().default("scheduled"),
+  cancelReason: text("cancel_reason", { enum: ["teacher", "series_cancel", "group_ended", "group_paused", "schedule_ended"] }),
   seriesId: text("series_id"),
   note: text("note"),
   createdAt: text("created_at").notNull(),
