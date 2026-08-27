@@ -13,14 +13,16 @@ function publicAccount(u: typeof s.users.$inferSelect) {
   return { id: u.id, role: u.role, login: u.email, name: u.name, lastName: u.lastName, extra: u.extra };
 }
 
-authRouter.get("/student-invite/:token", (req, res) => {
-  const invite = db.select().from(s.studentInvites).where(eq(s.studentInvites.token, String(req.params.token))).get();
+authRouter.get("/student-invite/:token", async (req, res) => {
+  const invite = (await db.select().from(s.studentInvites).where(eq(s.studentInvites.token, String(req.params.token))).limit(1))[0];
   if (!invite || invite.acceptedUserId) return res.status(404).json({ error: "Приглашение не найдено или уже использовано" });
-  const teacher = db.select().from(s.users).where(eq(s.users.id, invite.teacherId)).get();
+  const teacher = (await db.select().from(s.users).where(eq(s.users.id, invite.teacherId)).limit(1))[0];
   const groupIds = (invite.groupIds as string[] | null) ?? (invite.groupId ? [invite.groupId] : []);
-  const groupNames = groupIds
-    .map((id) => db.select().from(s.groups).where(eq(s.groups.id, id)).get()?.name)
-    .filter((n): n is string => Boolean(n));
+  const groupNames = (
+    await Promise.all(
+      groupIds.map(async (id) => (await db.select().from(s.groups).where(eq(s.groups.id, id)).limit(1))[0]?.name),
+    )
+  ).filter((n): n is string => Boolean(n));
   res.json({
     name: invite.name, lastName: invite.lastName,
     teacherName: teacher ? `${teacher.name} ${teacher.lastName}`.trim() : "",
@@ -35,24 +37,24 @@ authRouter.post("/register", async (req, res) => {
   if (!password || String(password).length < 6) return res.status(400).json({ error: "Пароль должен быть не короче 6 символов" });
   if (!name || !String(name).trim()) return res.status(400).json({ error: "Укажите имя" });
 
-  const existing = db.select().from(s.users).where(eq(s.users.email, email)).get();
+  const existing = (await db.select().from(s.users).where(eq(s.users.email, email)).limit(1))[0];
   if (existing) return res.status(409).json({ error: "Такой email уже зарегистрирован" });
 
   let invite: typeof s.studentInvites.$inferSelect | undefined;
   if (inviteToken && role === "student") {
-    invite = db.select().from(s.studentInvites).where(eq(s.studentInvites.token, String(inviteToken))).get();
+    invite = (await db.select().from(s.studentInvites).where(eq(s.studentInvites.token, String(inviteToken))).limit(1))[0];
     if (!invite || invite.acceptedUserId) return res.status(400).json({ error: "Приглашение не найдено или уже использовано" });
   }
 
   const id = randomUUID();
   const passwordHash = bcrypt.hashSync(String(password), 10);
-  db.insert(s.users)
+  (await db.insert(s.users)
     .values({ id, role, email, passwordHash, name: String(name).trim(), lastName: String(lastName || "").trim(), extra: String(extra || ""), createdAt: new Date().toISOString() })
-    .run();
-  db.insert(s.settings).values({ userId: id, instantCheck: true, reduceMotion: false, compactCards: false }).run();
+    );
+  (await db.insert(s.settings).values({ userId: id, instantCheck: true, reduceMotion: false, compactCards: false }));
 
   if (role === "student") {
-    db.insert(s.students)
+    (await db.insert(s.students)
       .values({
         userId: id,
         grade: invite?.grade ?? 11,
@@ -70,30 +72,32 @@ authRouter.post("/register", async (req, res) => {
         scheduleFormat: invite?.scheduleFormat ?? "offline",
         scheduleLocation: invite?.scheduleLocation ?? null,
       })
-      .run();
+      );
     if (invite) {
       const groupIds = (invite.groupIds as string[] | null) ?? (invite.groupId ? [invite.groupId] : []);
       const joinedAt = new Date().toISOString().slice(0, 10);
-      groupIds.forEach((groupId) => db.insert(s.groupMemberships).values({ id: randomUUID(), groupId, studentUserId: id, joinedAt, leftAt: null }).run());
-      db.update(s.studentInvites).set({ acceptedUserId: id, acceptedAt: new Date().toISOString() }).where(eq(s.studentInvites.token, invite.token)).run();
+      for (const groupId of groupIds) {
+        (await db.insert(s.groupMemberships).values({ id: randomUUID(), groupId, studentUserId: id, joinedAt, leftAt: null }));
+      }
+      (await db.update(s.studentInvites).set({ acceptedUserId: id, acceptedAt: new Date().toISOString() }).where(eq(s.studentInvites.token, invite.token)));
     }
   }
   if (role === "parent" && extra) {
     // "extra" doubles as the child's account id/code the parent was given by the teacher.
-    const child = db.select().from(s.users).where(eq(s.users.id, String(extra).trim())).get();
+    const child = (await db.select().from(s.users).where(eq(s.users.id, String(extra).trim())).limit(1))[0];
     if (child && child.role === "student") {
-      db.insert(s.parentLinks).values({ parentUserId: id, studentUserId: child.id }).run();
+      (await db.insert(s.parentLinks).values({ parentUserId: id, studentUserId: child.id }));
     }
   }
 
-  const user = db.select().from(s.users).where(eq(s.users.id, id)).get()!;
+  const user = (await db.select().from(s.users).where(eq(s.users.id, id)).limit(1))[0]!;
   const token = signToken({ sub: user.id, role: user.role });
   res.json({ token, account: publicAccount(user) });
 });
 
-authRouter.post("/login", (req, res) => {
+authRouter.post("/login", async (req, res) => {
   const { email, password } = req.body || {};
-  const user = db.select().from(s.users).where(eq(s.users.email, String(email || ""))).get();
+  const user = (await db.select().from(s.users).where(eq(s.users.email, String(email || ""))).limit(1))[0];
   if (!user || !bcrypt.compareSync(String(password || ""), user.passwordHash)) {
     return res.status(401).json({ error: "Неверный email или пароль" });
   }
@@ -101,8 +105,8 @@ authRouter.post("/login", (req, res) => {
   res.json({ token, account: publicAccount(user) });
 });
 
-authRouter.get("/me", requireAuth, (req: AuthedRequest, res) => {
-  const user = db.select().from(s.users).where(eq(s.users.id, req.auth!.sub)).get();
+authRouter.get("/me", requireAuth, async (req: AuthedRequest, res) => {
+  const user = (await db.select().from(s.users).where(eq(s.users.id, req.auth!.sub)).limit(1))[0];
   if (!user) return res.status(404).json({ error: "Аккаунт не найден" });
   res.json({ account: publicAccount(user) });
 });
@@ -111,13 +115,13 @@ authRouter.post("/forgot-password", async (req, res) => {
   const { email } = req.body || {};
   // Always respond the same way regardless of whether the email exists, so the
   // endpoint can't be used to enumerate registered accounts.
-  const user = email ? db.select().from(s.users).where(eq(s.users.email, String(email).trim())).get() : undefined;
+  const user = email ? (await db.select().from(s.users).where(eq(s.users.email, String(email).trim())).limit(1))[0] : undefined;
 
   if (user) {
-    db.delete(s.passwordResets).where(lt(s.passwordResets.expiresAt, new Date().toISOString())).run();
+    (await db.delete(s.passwordResets).where(lt(s.passwordResets.expiresAt, new Date().toISOString())));
     const token = randomBytes(32).toString("hex");
     const expiresAt = new Date(Date.now() + 60 * 60 * 1000).toISOString();
-    db.insert(s.passwordResets).values({ token, userId: user.id, expiresAt, createdAt: new Date().toISOString() }).run();
+    (await db.insert(s.passwordResets).values({ token, userId: user.id, expiresAt, createdAt: new Date().toISOString() }));
 
     const base = process.env.FRONTEND_URL || "https://kabinet.targetologistcabinet.space";
     const link = `${base}/reset-password?token=${token}`;
@@ -135,20 +139,20 @@ authRouter.post("/forgot-password", async (req, res) => {
   res.json({ ok: true });
 });
 
-authRouter.post("/reset-password", (req, res) => {
+authRouter.post("/reset-password", async (req, res) => {
   const { token, password } = req.body || {};
   if (!token || !password || String(password).length < 6) {
     return res.status(400).json({ error: "Пароль должен быть не короче 6 символов" });
   }
 
-  const reset = db.select().from(s.passwordResets).where(eq(s.passwordResets.token, String(token))).get();
+  const reset = (await db.select().from(s.passwordResets).where(eq(s.passwordResets.token, String(token))).limit(1))[0];
   if (!reset || reset.expiresAt < new Date().toISOString()) {
     return res.status(400).json({ error: "Ссылка недействительна или устарела — запросите восстановление ещё раз" });
   }
 
   const passwordHash = bcrypt.hashSync(String(password), 10);
-  db.update(s.users).set({ passwordHash }).where(eq(s.users.id, reset.userId)).run();
-  db.delete(s.passwordResets).where(eq(s.passwordResets.token, String(token))).run();
+  (await db.update(s.users).set({ passwordHash }).where(eq(s.users.id, reset.userId)));
+  (await db.delete(s.passwordResets).where(eq(s.passwordResets.token, String(token))));
 
   res.json({ ok: true });
 });

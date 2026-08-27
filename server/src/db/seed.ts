@@ -1,58 +1,58 @@
 import bcrypt from "bcryptjs";
 import { randomUUID } from "node:crypto";
 import { and, eq, isNull } from "drizzle-orm";
-import { db, sqlite } from "./client.js";
+import { db, pool } from "./client.js";
 import * as s from "./schema.js";
 import { CT_TESTS, HOMEWORKS, REVIEW_CARD_DEFS, SUBJECTS, TECHNIQUES, THEORY_MATERIALS, TOPICS, TRAINERS } from "./seedContent.js";
 
 const now = () => new Date().toISOString();
 const hash = (pw: string) => bcrypt.hashSync(pw, 10);
 
-function seedContent() {
-  db.insert(s.subjects).values(SUBJECTS).onConflictDoNothing().run();
-  db.insert(s.topics).values(TOPICS).onConflictDoNothing().run();
-  db.insert(s.homeworks)
+async function seedContent() {
+  (await db.insert(s.subjects).values(SUBJECTS).onConflictDoNothing());
+  (await db.insert(s.topics).values(TOPICS).onConflictDoNothing());
+  (await db.insert(s.homeworks)
     .values(HOMEWORKS.map((h) => ({ ...h, sections: h.sections })))
     .onConflictDoNothing()
-    .run();
-  db.insert(s.theoryMaterials)
+    );
+  (await db.insert(s.theoryMaterials)
     .values(THEORY_MATERIALS.map((m) => ({ ...m, isNew: m.isNew })))
     .onConflictDoNothing()
-    .run();
-  db.insert(s.ctTests).values(CT_TESTS as (typeof s.ctTests.$inferInsert)[]).onConflictDoNothing().run();
-  db.insert(s.techniques).values(TECHNIQUES).onConflictDoNothing().run();
-  db.insert(s.trainers).values(TRAINERS as (typeof s.trainers.$inferInsert)[]).onConflictDoNothing().run();
-  db.insert(s.reviewCardDefs).values(REVIEW_CARD_DEFS).onConflictDoNothing().run();
+    );
+  (await db.insert(s.ctTests).values(CT_TESTS as (typeof s.ctTests.$inferInsert)[]).onConflictDoNothing());
+  (await db.insert(s.techniques).values(TECHNIQUES).onConflictDoNothing());
+  (await db.insert(s.trainers).values(TRAINERS as (typeof s.trainers.$inferInsert)[]).onConflictDoNothing());
+  (await db.insert(s.reviewCardDefs).values(REVIEW_CARD_DEFS).onConflictDoNothing());
 }
 
-function upsertMembership(groupId: string, studentUserId: string) {
-  const active = db.select().from(s.groupMemberships).where(and(eq(s.groupMemberships.groupId, groupId), eq(s.groupMemberships.studentUserId, studentUserId), isNull(s.groupMemberships.leftAt))).get();
+async function upsertMembership(groupId: string, studentUserId: string) {
+  const active = (await db.select().from(s.groupMemberships).where(and(eq(s.groupMemberships.groupId, groupId), eq(s.groupMemberships.studentUserId, studentUserId), isNull(s.groupMemberships.leftAt))).limit(1))[0];
   if (active) return;
-  db.insert(s.groupMemberships).values({ id: randomUUID(), groupId, studentUserId, joinedAt: now().slice(0, 10), leftAt: null }).run();
+  (await db.insert(s.groupMemberships).values({ id: randomUUID(), groupId, studentUserId, joinedAt: now().slice(0, 10), leftAt: null }));
 }
 
-function upsertUser(u: { id: string; role: "student" | "teacher" | "parent"; email: string; password: string; name: string; lastName: string; extra: string }) {
-  db.insert(s.users)
+async function upsertUser(u: { id: string; role: "student" | "teacher" | "parent"; email: string; password: string; name: string; lastName: string; extra: string }) {
+  (await db.insert(s.users)
     .values({ id: u.id, role: u.role, email: u.email, passwordHash: hash(u.password), name: u.name, lastName: u.lastName, extra: u.extra, createdAt: now() })
     .onConflictDoNothing()
-    .run();
-  db.insert(s.settings).values({ userId: u.id, instantCheck: true, reduceMotion: false, compactCards: false }).onConflictDoNothing().run();
+    );
+  (await db.insert(s.settings).values({ userId: u.id, instantCheck: true, reduceMotion: false, compactCards: false }).onConflictDoNothing());
 }
 
-function seedDemoAccounts() {
+async function seedDemoAccounts() {
   const DEMO_PASSWORD = "demo1234";
 
-  upsertUser({ id: "acc-tc", role: "teacher", email: "irina@demo", password: DEMO_PASSWORD, name: "Ирина", lastName: "Петровна", extra: "Математика и химия · 2 группы" });
-  upsertUser({ id: "acc-st", role: "student", email: "maksim@demo", password: DEMO_PASSWORD, name: "Максим", lastName: "Ковалевич", extra: "11 класс · математика, химия" });
-  upsertUser({ id: "acc-pr", role: "parent", email: "parent@demo", password: DEMO_PASSWORD, name: "Елена", lastName: "Ковалевич", extra: "Родитель Максима" });
+  await upsertUser({ id: "acc-tc", role: "teacher", email: "irina@demo", password: DEMO_PASSWORD, name: "Ирина", lastName: "Петровна", extra: "Математика и химия · 2 группы" });
+  await upsertUser({ id: "acc-st", role: "student", email: "maksim@demo", password: DEMO_PASSWORD, name: "Максим", lastName: "Ковалевич", extra: "11 класс · математика, химия" });
+  await upsertUser({ id: "acc-pr", role: "parent", email: "parent@demo", password: DEMO_PASSWORD, name: "Елена", lastName: "Ковалевич", extra: "Родитель Максима" });
 
-  db.insert(s.students).values({ userId: "acc-st", grade: 11, city: "Минск", goalScore: 85, teacherId: "acc-tc" }).onConflictDoNothing().run();
-  db.insert(s.parentLinks).values({ parentUserId: "acc-pr", studentUserId: "acc-st" }).onConflictDoNothing().run();
+  (await db.insert(s.students).values({ userId: "acc-st", grade: 11, city: "Минск", goalScore: 85, teacherId: "acc-tc" }).onConflictDoNothing());
+  (await db.insert(s.parentLinks).values({ parentUserId: "acc-pr", studentUserId: "acc-st" }).onConflictDoNothing());
 
-  db.insert(s.groups).values({ id: "gr-11a", name: "11 «А» · ЦТ математика", teacherId: "acc-tc", subjectId: "math" }).onConflictDoNothing().run();
-  db.insert(s.groups).values({ id: "gr-chem", name: "Химия · интенсив", teacherId: "acc-tc", subjectId: "chem" }).onConflictDoNothing().run();
-  upsertMembership("gr-11a", "acc-st");
-  upsertMembership("gr-chem", "acc-st");
+  (await db.insert(s.groups).values({ id: "gr-11a", name: "11 «А» · ЦТ математика", teacherId: "acc-tc", subjectId: "math" }).onConflictDoNothing());
+  (await db.insert(s.groups).values({ id: "gr-chem", name: "Химия · интенсив", teacherId: "acc-tc", subjectId: "chem" }).onConflictDoNothing());
+  await upsertMembership("gr-11a", "acc-st");
+  await upsertMembership("gr-chem", "acc-st");
 
   // A few lightweight classmates so the teacher's roster/review queue isn't empty.
   const classmates = [
@@ -62,11 +62,13 @@ function seedDemoAccounts() {
     { id: "st-1005", name: "Илья", lastName: "Морозов", goal: 70, groups: ["gr-chem"], results: [49] },
   ];
   for (const c of classmates) {
-    upsertUser({ id: c.id, role: "student", email: `${c.id}@demo`, password: DEMO_PASSWORD, name: c.name, lastName: c.lastName, extra: "11 класс" });
-    db.insert(s.students).values({ userId: c.id, grade: 11, city: "Минск", goalScore: c.goal, teacherId: "acc-tc" }).onConflictDoNothing().run();
-    for (const g of c.groups) upsertMembership(g, c.id);
-    c.results.forEach((score, i) => {
-      db.insert(s.ctResults)
+    await upsertUser({ id: c.id, role: "student", email: `${c.id}@demo`, password: DEMO_PASSWORD, name: c.name, lastName: c.lastName, extra: "11 класс" });
+    (await db.insert(s.students).values({ userId: c.id, grade: 11, city: "Минск", goalScore: c.goal, teacherId: "acc-tc" }).onConflictDoNothing());
+    for (const g of c.groups) await upsertMembership(g, c.id);
+    // for..of rather than forEach: an async forEach callback would leave the
+    // inserts running after the loop, and the pool closes at the end of seed.
+    for (const [i, score] of c.results.entries()) {
+      (await db.insert(s.ctResults)
         .values({
           id: `res-${c.id}-${i}`,
           studentId: c.id,
@@ -79,24 +81,24 @@ function seedDemoAccounts() {
           topicAccuracy: { "tp-frac": score },
         })
         .onConflictDoNothing()
-        .run();
-    });
+        );
+    }
   }
   // st-1002 has a homework submitted and awaiting review, to populate the teacher's queue.
-  db.insert(s.homeworkState)
+  (await db.insert(s.homeworkState)
     .values({ studentId: "st-1002", homeworkId: "hw-02", startedAt: "2026-08-05T10:00:00", submittedAt: "2026-08-12T18:00:00" })
     .onConflictDoNothing()
-    .run();
+    );
 
-  seedMaximProgress();
+  await seedMaximProgress();
 }
 
-function seedMaximProgress() {
+async function seedMaximProgress() {
   const student = "acc-st";
 
-  db.insert(s.homeworkState).values({ studentId: student, homeworkId: "hw-02", startedAt: "2026-08-08T18:20:00", submittedAt: null }).onConflictDoNothing().run();
-  db.insert(s.homeworkState).values({ studentId: student, homeworkId: "hw-01", startedAt: "2026-07-21T17:00:00", submittedAt: "2026-07-27T21:10:00", reviewedAt: "2026-08-11T12:00:00" }).onConflictDoNothing().run();
-  db.insert(s.homeworkState).values({ studentId: student, homeworkId: "hw-04", startedAt: "2026-08-05T19:00:00", submittedAt: "2026-08-09T20:30:00" }).onConflictDoNothing().run();
+  (await db.insert(s.homeworkState).values({ studentId: student, homeworkId: "hw-02", startedAt: "2026-08-08T18:20:00", submittedAt: null }).onConflictDoNothing());
+  (await db.insert(s.homeworkState).values({ studentId: student, homeworkId: "hw-01", startedAt: "2026-07-21T17:00:00", submittedAt: "2026-07-27T21:10:00", reviewedAt: "2026-08-11T12:00:00" }).onConflictDoNothing());
+  (await db.insert(s.homeworkState).values({ studentId: student, homeworkId: "hw-04", startedAt: "2026-08-05T19:00:00", submittedAt: "2026-08-09T20:30:00" }).onConflictDoNothing());
 
   const attempts: (typeof s.homeworkAttempts.$inferInsert)[] = [
     { studentId: student, homeworkId: "hw-02", exerciseId: "hw02-a1", value: "9", status: "correct", attempts: 1, hintsOpened: 0, solutionOpened: false, draftText: "", drawing: null, updatedAt: now() },
@@ -110,9 +112,9 @@ function seedMaximProgress() {
     { studentId: student, homeworkId: "hw-04", exerciseId: "hw04-a2", value: "o1", status: "manual", attempts: 1, hintsOpened: 0, solutionOpened: false, draftText: "", drawing: null, updatedAt: now() },
     { studentId: student, homeworkId: "hw-04", exerciseId: "hw04-a3", value: "уменьшается", status: "manual", attempts: 1, hintsOpened: 0, solutionOpened: false, draftText: "", drawing: null, updatedAt: now() },
   ];
-  for (const a of attempts) db.insert(s.homeworkAttempts).values(a).onConflictDoNothing().run();
+  for (const a of attempts) (await db.insert(s.homeworkAttempts).values(a).onConflictDoNothing());
 
-  db.insert(s.teacherFeedback)
+  (await db.insert(s.teacherFeedback)
     .values({
       id: "fb-1", studentId: student, homeworkId: "hw-01", teacherId: "acc-tc", grade: "8 / 10",
       text: "Максим, уравнения решены аккуратно. В задании 2 потерян случай a = 0 — разбери его ещё раз, на ЦТ такой пункт встречается часто. Систему решил верно и быстро.",
@@ -120,12 +122,12 @@ function seedMaximProgress() {
       createdAt: "2026-08-11T12:00:00",
     })
     .onConflictDoNothing()
-    .run();
+    );
 
-  db.insert(s.ctSessions)
+  (await db.insert(s.ctSessions)
     .values({ studentId: student, testId: "ct-solut", startedAt: "2026-08-12T19:40:00", answers: { q1: "15", q2: "o1" }, flagged: { q4: true }, current: 2, elapsed: 214, finishedAt: null, only: null })
     .onConflictDoNothing()
-    .run();
+    );
 
   const results: { id: string; testId: string; title: string; subjectId: string; date: string; score: number; minutes: number; topicAccuracy: Record<string, number> }[] = [
     { id: "res-1", testId: "ct-lin", title: "Линейные уравнения", subjectId: "math", date: "2026-05-18", score: 64, minutes: 21, topicAccuracy: { "tp-lin": 64 } },
@@ -134,15 +136,15 @@ function seedMaximProgress() {
     { id: "res-4", testId: "ct-full-math", title: "Полный вариант ЦТ, математика", subjectId: "math", date: "2026-07-19", score: 76, minutes: 164, topicAccuracy: { "tp-lin": 88, "tp-frac": 48, "tp-perc": 66, "tp-prop": 72 } },
     { id: "res-5", testId: "ct-solut", title: "Растворы", subjectId: "chem", date: "2026-08-06", score: 74, minutes: 16, topicAccuracy: { "tp-solut": 52 } },
   ];
-  for (const r of results) db.insert(s.ctResults).values({ ...r, studentId: student }).onConflictDoNothing().run();
+  for (const r of results) (await db.insert(s.ctResults).values({ ...r, studentId: student }).onConflictDoNothing());
 
-  db.insert(s.theoryProgress).values({ studentId: student, materialId: "th-prop", progress: 60, favorite: true, read: false, lastBlock: 4, quiz: {} }).onConflictDoNothing().run();
-  db.insert(s.theoryProgress).values({ studentId: student, materialId: "th-solut", progress: 0, favorite: false, read: false, lastBlock: 0, quiz: {} }).onConflictDoNothing().run();
+  (await db.insert(s.theoryProgress).values({ studentId: student, materialId: "th-prop", progress: 60, favorite: true, read: false, lastBlock: 4, quiz: {} }).onConflictDoNothing());
+  (await db.insert(s.theoryProgress).values({ studentId: student, materialId: "th-solut", progress: 0, favorite: false, read: false, lastBlock: 0, quiz: {} }).onConflictDoNothing());
 
-  db.insert(s.techniqueProgress).values({ studentId: student, techniqueId: "tq-feynman", practiced: 2, done: [0, 1] }).onConflictDoNothing().run();
+  (await db.insert(s.techniqueProgress).values({ studentId: student, techniqueId: "tq-feynman", practiced: 2, done: [0, 1] }).onConflictDoNothing());
 
-  db.insert(s.gameRecords).values({ studentId: student, trainerId: "tr-equations", best: 7, played: 3, lastScore: 5 }).onConflictDoNothing().run();
-  db.insert(s.gameRecords).values({ studentId: student, trainerId: "tr-color", best: 8, played: 1, lastScore: 8 }).onConflictDoNothing().run();
+  (await db.insert(s.gameRecords).values({ studentId: student, trainerId: "tr-equations", best: 7, played: 3, lastScore: 5 }).onConflictDoNothing());
+  (await db.insert(s.gameRecords).values({ studentId: student, trainerId: "tr-color", best: 8, played: 1, lastScore: 8 }).onConflictDoNothing());
 
   const REVIEW_CARDS_SEED = [
     { id: "rc-1", box: 2, due: "2026-08-14" },
@@ -151,18 +153,18 @@ function seedMaximProgress() {
     { id: "rc-4", box: 3, due: "2026-08-17" },
     { id: "rc-5", box: 5, due: "2026-08-27" },
   ];
-  for (const c of REVIEW_CARDS_SEED) db.insert(s.reviewCards).values({ studentId: student, cardId: c.id, box: c.box, due: c.due }).onConflictDoNothing().run();
+  for (const c of REVIEW_CARDS_SEED) (await db.insert(s.reviewCards).values({ studentId: student, cardId: c.id, box: c.box, due: c.due }).onConflictDoNothing());
 
-  db.insert(s.notifications)
+  (await db.insert(s.notifications)
     .values([
       { id: randomUUID(), userId: student, text: "Ирина Петровна проверила «Тетрадь 01 — Линейные уравнения»", date: "2026-08-11", kind: "feedback", read: false, homeworkId: "hw-01" },
       { id: randomUUID(), userId: student, text: "Назначена новая работа по химии: «Растворы»", date: "2026-08-10", kind: "assign", read: false, homeworkId: "hw-03" },
     ])
     .onConflictDoNothing()
-    .run();
+    );
 }
 
-seedContent();
-if (process.env.SEED_DEMO === "true") seedDemoAccounts();
-sqlite.close();
+await seedContent();
+if (process.env.SEED_DEMO === "true") await seedDemoAccounts();
+await pool.end();
 console.log("Seed complete.");

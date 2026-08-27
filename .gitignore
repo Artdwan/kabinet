@@ -12,6 +12,14 @@ dist
 dist-ssr
 *.local
 
+# Secrets: DATABASE_URL and JWT_SECRET live here
+.env
+.env.*
+!.env.example
+
+# Local SQLite data from before the Postgres migration
+server/data
+
 # Editor directories and files
 .vscode/*
 !.vscode/extensions.json

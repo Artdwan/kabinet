@@ -1,5 +1,6 @@
-import { migrate } from "drizzle-orm/better-sqlite3/migrator";
-import { db } from "./client.js";
+import { migrate } from "drizzle-orm/node-postgres/migrator";
+import { db, pool } from "./client.js";
 
-migrate(db, { migrationsFolder: "./drizzle" });
+await migrate(db, { migrationsFolder: "./drizzle" });
 console.log("Migrations applied.");
+await pool.end();

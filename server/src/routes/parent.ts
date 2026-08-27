@@ -8,31 +8,31 @@ import { homeworkProgress, type ExerciseStatus } from "../lib/scoring.js";
 export const parentRouter = Router();
 parentRouter.use(requireAuth, requireRole("parent"));
 
-function linkedChild(parentId: string) {
-  const link = db.select().from(s.parentLinks).where(eq(s.parentLinks.parentUserId, parentId)).get();
+async function linkedChild(parentId: string) {
+  const link = (await db.select().from(s.parentLinks).where(eq(s.parentLinks.parentUserId, parentId)).limit(1))[0];
   if (!link) return null;
-  const user = db.select().from(s.users).where(eq(s.users.id, link.studentUserId)).get();
-  const student = db.select().from(s.students).where(eq(s.students.userId, link.studentUserId)).get();
+  const user = (await db.select().from(s.users).where(eq(s.users.id, link.studentUserId)).limit(1))[0];
+  const student = (await db.select().from(s.students).where(eq(s.students.userId, link.studentUserId)).limit(1))[0];
   if (!user || !student) return null;
   return { user, student };
 }
 
-parentRouter.get("/child", (req: AuthedRequest, res) => {
-  const child = linkedChild(req.auth!.sub);
+parentRouter.get("/child", async (req: AuthedRequest, res) => {
+  const child = await linkedChild(req.auth!.sub);
   if (!child) return res.status(404).json({ error: "Ребёнок не привязан к аккаунту. Уточните код ученика у преподавателя." });
   res.json({ id: child.user.id, name: child.user.name, lastName: child.user.lastName, grade: child.student.grade, goalScore: child.student.goalScore });
 });
 
-parentRouter.get("/child/progress", (req: AuthedRequest, res) => {
-  const child = linkedChild(req.auth!.sub);
+parentRouter.get("/child/progress", async (req: AuthedRequest, res) => {
+  const child = await linkedChild(req.auth!.sub);
   if (!child) return res.status(404).json({ error: "Ребёнок не привязан к аккаунту" });
   const studentId = child.user.id;
 
-  const results = db.select().from(s.ctResults).where(eq(s.ctResults.studentId, studentId)).all();
+  const results = (await db.select().from(s.ctResults).where(eq(s.ctResults.studentId, studentId)));
 
-  const homeworks = db.select().from(s.homeworks).all();
-  const attempts = db.select().from(s.homeworkAttempts).where(eq(s.homeworkAttempts.studentId, studentId)).all();
-  const states = db.select().from(s.homeworkState).where(eq(s.homeworkState.studentId, studentId)).all();
+  const homeworks = (await db.select().from(s.homeworks));
+  const attempts = (await db.select().from(s.homeworkAttempts).where(eq(s.homeworkAttempts.studentId, studentId)));
+  const states = (await db.select().from(s.homeworkState).where(eq(s.homeworkState.studentId, studentId)));
   const stateMap = new Map(states.map((st) => [st.homeworkId, st]));
 
   const homeworkProgressList = homeworks.map((hw) => {
@@ -44,24 +44,24 @@ parentRouter.get("/child/progress", (req: AuthedRequest, res) => {
     return { id: hw.id, title: hw.title, dueAt: hw.dueAt, done: progress.done, total: progress.total, submittedAt: st?.submittedAt ?? null, reviewedAt: st?.reviewedAt ?? null };
   });
 
-  const feedback = db.select().from(s.teacherFeedback).where(eq(s.teacherFeedback.studentId, studentId)).all();
+  const feedback = (await db.select().from(s.teacherFeedback).where(eq(s.teacherFeedback.studentId, studentId)));
   const latestFeedback = feedback.sort((a, b) => (b.createdAt > a.createdAt ? 1 : -1))[0];
   let latestFeedbackOut = null;
   if (latestFeedback) {
-    const teacher = db.select().from(s.users).where(eq(s.users.id, latestFeedback.teacherId)).get();
+    const teacher = (await db.select().from(s.users).where(eq(s.users.id, latestFeedback.teacherId)).limit(1))[0];
     latestFeedbackOut = { teacher: teacher ? `${teacher.name} ${teacher.lastName}` : "", text: latestFeedback.text, grade: latestFeedback.grade, date: latestFeedback.createdAt.slice(0, 10) };
   }
 
   res.json({ results, homeworks: homeworkProgressList, latestFeedback: latestFeedbackOut });
 });
 
-parentRouter.get("/child/week-activity", (req: AuthedRequest, res) => {
-  const child = linkedChild(req.auth!.sub);
+parentRouter.get("/child/week-activity", async (req: AuthedRequest, res) => {
+  const child = await linkedChild(req.auth!.sub);
   if (!child) return res.status(404).json({ error: "Ребёнок не привязан к аккаунту" });
   const studentId = child.user.id;
 
   const since = new Date(Date.now() - 7 * 86400000).toISOString();
-  const attempts = db.select().from(s.homeworkAttempts).where(and(eq(s.homeworkAttempts.studentId, studentId), gte(s.homeworkAttempts.updatedAt, since))).all();
+  const attempts = (await db.select().from(s.homeworkAttempts).where(and(eq(s.homeworkAttempts.studentId, studentId), gte(s.homeworkAttempts.updatedAt, since))));
 
   const DAYS = ["Вс", "Пн", "Вт", "Ср", "Чт", "Пт", "Сб"];
   const byDay = new Map<string, { tasks: Set<string>; count: number }>();
