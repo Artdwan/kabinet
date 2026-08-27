@@ -1,19 +1,24 @@
 import type { LucideIcon } from "lucide-react";
 import {
+  Baby,
   BarChart3,
   BookOpen,
   Brain,
   CalendarDays,
   ClipboardCheck,
+  Contact,
   FileText,
+  Filter,
   FolderOpen,
   Gamepad2,
   Home,
   LayoutGrid,
   Library,
   ListChecks,
+  MessageSquareText,
   UsersRound,
   Users,
+  Wallet,
 } from "lucide-react";
 import type { Role } from "../types";
 
@@ -23,6 +28,8 @@ export interface NavItem {
   shortLabel: string;
   icon: LucideIcon;
   badge?: number;
+  /** Подпись группы, отрисовывается разделителем перед этим пунктом. */
+  group?: string;
 }
 
 export function navForRole(role: Role, badges: { homework?: number; review?: number }): NavItem[] {
@@ -34,6 +41,11 @@ export function navForRole(role: Role, badges: { homework?: number; review?: num
       { to: "/teacher/students", label: "Ученики", shortLabel: "Ученики", icon: Users },
       { to: "/teacher/review", label: "Проверка работ", shortLabel: "Проверка", icon: ClipboardCheck, badge: badges.review },
       { to: "/teacher/assign", label: "Материалы", shortLabel: "Материалы", icon: FolderOpen },
+      { to: "/crm/leads", label: "Лиды", shortLabel: "Лиды", icon: Filter, group: "CRM" },
+      { to: "/crm/clients", label: "Клиенты", shortLabel: "Клиенты", icon: Contact },
+      { to: "/crm/students", label: "Ученики CRM", shortLabel: "Ученики CRM", icon: Baby },
+      { to: "/crm/subscriptions", label: "Абонементы", shortLabel: "Абонементы", icon: Wallet },
+      { to: "/crm/templates", label: "Шаблоны", shortLabel: "Шаблоны", icon: MessageSquareText },
     ];
   }
   if (role === "parent") {

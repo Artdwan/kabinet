@@ -31,6 +31,11 @@ export function usePageTitle(): { title: string; crumbs: string[] } {
   if (path === "/teacher/students") return { title: "Ученики", crumbs: [] };
   if (path === "/teacher/review") return { title: "Проверка работ", crumbs: [] };
   if (path === "/teacher/assign") return { title: "Материалы", crumbs: [] };
+  if (path === "/crm/leads") return { title: "Лиды", crumbs: ["CRM"] };
+  if (path === "/crm/clients") return { title: "Клиенты", crumbs: ["CRM"] };
+  if (path === "/crm/students") return { title: "Ученики", crumbs: ["CRM"] };
+  if (path === "/crm/subscriptions") return { title: "Абонементы", crumbs: ["CRM"] };
+  if (path === "/crm/templates") return { title: "Шаблоны ответов", crumbs: ["CRM"] };
   if (path === "/parent") return { title: "Прогресс ребёнка", crumbs: [] };
   if (path === "/parent/reports") return { title: "Отчёты", crumbs: [] };
   return { title: "Кабинет", crumbs: [] };

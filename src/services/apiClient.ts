@@ -42,8 +42,22 @@ async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
   return res.json() as Promise<T>;
 }
 
+/**
+ * Fetches a protected file. The token travels in the Authorization header,
+ * so unlike a plain <a href> the URL never carries it into history or logs.
+ * Caller owns the returned object URL and should revokeObjectURL it.
+ */
+async function openBlob(path: string): Promise<string> {
+  const headers = new Headers();
+  if (token) headers.set("Authorization", `Bearer ${token}`);
+  const res = await fetch(`${API_BASE}${path}`, { headers });
+  if (!res.ok) throw new ApiError(`Не удалось загрузить файл (${res.status})`, res.status);
+  return URL.createObjectURL(await res.blob());
+}
+
 export const api = {
   get: <T>(path: string) => request<T>(path),
+  blob: openBlob,
   post: <T>(path: string, body?: unknown) => request<T>(path, { method: "POST", body: body as BodyInit }),
   patch: <T>(path: string, body?: unknown) => request<T>(path, { method: "PATCH", body: body as BodyInit }),
   del: <T>(path: string) => request<T>(path, { method: "DELETE" }),

@@ -27,6 +27,11 @@ import { TeacherGroupWorkspacePage } from "./pages/teacher/TeacherGroupWorkspace
 import { TeacherCalendarPage } from "./pages/teacher/TeacherCalendarPage";
 import { TeacherReviewPage } from "./pages/teacher/TeacherReviewPage";
 import { TeacherAssignPage } from "./pages/teacher/TeacherAssignPage";
+import { CrmLeadsPage } from "./pages/crm/CrmLeadsPage";
+import { CrmClientsPage } from "./pages/crm/CrmClientsPage";
+import { CrmStudentsPage } from "./pages/crm/CrmStudentsPage";
+import { CrmSubscriptionsPage } from "./pages/crm/CrmSubscriptionsPage";
+import { CrmTemplatesPage } from "./pages/crm/CrmTemplatesPage";
 import { ParentHomePage } from "./pages/parent/ParentHomePage";
 import { ParentReportsPage } from "./pages/parent/ParentReportsPage";
 
@@ -81,6 +86,12 @@ function AppRoutes() {
         <Route path="teacher/calendar" element={<TeacherCalendarPage />} />
         <Route path="teacher/review" element={<TeacherReviewPage />} />
         <Route path="teacher/assign" element={<TeacherAssignPage />} />
+
+        <Route path="crm/leads" element={<CrmLeadsPage />} />
+        <Route path="crm/clients" element={<CrmClientsPage />} />
+        <Route path="crm/students" element={<CrmStudentsPage />} />
+        <Route path="crm/subscriptions" element={<CrmSubscriptionsPage />} />
+        <Route path="crm/templates" element={<CrmTemplatesPage />} />
 
         <Route path="parent" element={<ParentHomePage />} />
         <Route path="parent/reports" element={<ParentReportsPage />} />

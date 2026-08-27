@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { Fragment, useEffect, useMemo, useState } from "react";
 import { Link, NavLink, Outlet, useLocation, useNavigate } from "react-router-dom";
 import { Bell, ChevronDown, LogOut, Settings as SettingsIcon } from "lucide-react";
 import { useStore } from "../services/StoreContext";
@@ -75,8 +75,25 @@ export function AppShell() {
           </div>
         </Link>
         {items.map((item) => (
+          <Fragment key={item.to}>
+            {item.group && (
+              <div
+                data-sidelabel
+                style={{
+                  fontSize: 10,
+                  textTransform: "uppercase",
+                  letterSpacing: "0.06em",
+                  color: "var(--color-text-3, var(--color-text-2))",
+                  opacity: 0.7,
+                  padding: "12px 10px 4px",
+                  marginTop: 8,
+                  borderTop: "1px solid var(--color-border)",
+                }}
+              >
+                {item.group}
+              </div>
+            )}
           <NavLink
-            key={item.to}
             to={item.to}
             style={({ isActive }) => ({
               display: "flex",
@@ -113,6 +130,7 @@ export function AppShell() {
               </span>
             )}
           </NavLink>
+          </Fragment>
         ))}
       </aside>
 
