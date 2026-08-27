@@ -6,6 +6,7 @@ import { contentRouter } from "./routes/content.js";
 import { studentRouter } from "./routes/student.js";
 import { teacherRouter } from "./routes/teacher.js";
 import { parentRouter } from "./routes/parent.js";
+import { crmRouter } from "./routes/crm.js";
 
 const app = express();
 
@@ -19,6 +20,7 @@ app.use("/api/content", contentRouter);
 app.use("/api/student", studentRouter);
 app.use("/api/teacher", teacherRouter);
 app.use("/api/parent", parentRouter);
+app.use("/api/crm", crmRouter);
 
 app.use((err: unknown, _req: express.Request, res: express.Response, _next: express.NextFunction) => {
   console.error(err);

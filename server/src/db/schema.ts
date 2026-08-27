@@ -1,4 +1,10 @@
-import { pgTable, text, integer, boolean, jsonb, primaryKey } from "drizzle-orm/pg-core";
+import { pgTable, text, integer, boolean, jsonb, numeric, primaryKey, unique, customType } from "drizzle-orm/pg-core";
+
+// pg-core has no bytea column type. Receipts (сканы чеков) live in the
+// database so an ordinary pg_dump captures them along with everything else.
+const bytea = customType<{ data: Buffer; default: false }>({
+  dataType: () => "bytea",
+});
 
 // ---------------------------------------------------------------------------
 // Accounts
@@ -438,4 +444,94 @@ export const notifications = pgTable("notifications", {
   kind: text("kind", { enum: ["feedback", "deadline", "assign"] }).notNull(),
   read: boolean("read").notNull().default(false),
   homeworkId: text("homework_id"),
+});
+
+// ---------------------------------------------------------------------------
+// CRM: продажи и деньги. Перенесено из отдельного приложения my-crm.
+//
+// Ключевое отличие от учебной части: Client — это плательщик (обычно родитель),
+// а crmStudents — ребёнок, за которого платят. У одного клиента может быть
+// несколько детей, и абонемент принадлежит ребёнку, а не плательщику.
+// ---------------------------------------------------------------------------
+
+export const leadStatuses = ["NEW", "IN_DIALOG", "QUALIFICATION", "DIAGNOSTIC", "DECISION", "RESULT"] as const;
+
+export const leads = pgTable("leads", {
+  id: text("id").primaryKey(),
+  teacherId: text("teacher_id").notNull().references(() => users.id),
+  name: text("name").notNull(),
+  who: text("who").notNull().default(""),
+  grade: text("grade").notNull().default(""),
+  subject: text("subject").notNull().default(""),
+  channel: text("channel").notNull().default(""),
+  status: text("status", { enum: leadStatuses }).notNull().default("NEW"),
+  sub: text("sub").notNull().default(""),
+  task: text("task"),
+  createdAt: text("created_at").notNull(),
+  updatedAt: text("updated_at").notNull(),
+});
+
+/// Плательщик — обычно родитель, иногда сам ученик (например, 11 класс).
+export const clients = pgTable("clients", {
+  id: text("id").primaryKey(),
+  teacherId: text("teacher_id").notNull().references(() => users.id),
+  name: text("name").notNull(),
+  who: text("who").notNull().default(""),
+  channel: text("channel").notNull().default(""),
+  phone: text("phone"),
+  fromLeadId: text("from_lead_id").unique().references(() => leads.id),
+  createdAt: text("created_at").notNull(),
+});
+
+/// Ребёнок, за которого платит клиент. `userId` связывает его с учебным
+/// аккаунтом в кабинете — до слияния это был внешний id в другой базе,
+/// теперь это обычный внешний ключ. null, пока аккаунта нет.
+export const crmStudents = pgTable("crm_students", {
+  id: text("id").primaryKey(),
+  clientId: text("client_id").notNull().references(() => clients.id, { onDelete: "cascade" }),
+  name: text("name").notNull(),
+  grade: text("grade").notNull().default(""),
+  userId: text("user_id").unique().references(() => users.id),
+  createdAt: text("created_at").notNull(),
+});
+
+export const subscriptions = pgTable(
+  "subscriptions",
+  {
+    id: text("id").primaryKey(),
+    studentId: text("student_id").notNull().references(() => crmStudents.id, { onDelete: "cascade" }),
+    subject: text("subject").notNull(),
+    // Первое число месяца, YYYY-MM-DD.
+    periodStart: text("period_start").notNull(),
+    lessonsCount: integer("lessons_count").notNull(),
+    pricePerLesson: numeric("price_per_lesson", { precision: 10, scale: 2 }).notNull(),
+    discountPercent: numeric("discount_percent", { precision: 5, scale: 2 }).notNull().default("0"),
+    createdAt: text("created_at").notNull(),
+  },
+  // По ученику, а не по клиенту: двое детей одного родителя могут ходить
+  // на один предмет в одном месяце.
+  (t) => [unique().on(t.studentId, t.subject, t.periodStart)],
+);
+
+export const payments = pgTable("payments", {
+  id: text("id").primaryKey(),
+  subscriptionId: text("subscription_id").notNull().references(() => subscriptions.id, { onDelete: "cascade" }),
+  amount: numeric("amount", { precision: 10, scale: 2 }).notNull(),
+  paidAt: text("paid_at").notNull(),
+  note: text("note"),
+  receiptName: text("receipt_name"),
+  receiptType: text("receipt_type"),
+  receiptData: bytea("receipt_data"),
+  createdAt: text("created_at").notNull(),
+});
+
+export const templates = pgTable("templates", {
+  id: text("id").primaryKey(),
+  teacherId: text("teacher_id").notNull().references(() => users.id),
+  title: text("title").notNull(),
+  body: text("body").notNull(),
+  // null — шаблон подходит любому этапу воронки.
+  stage: text("stage", { enum: leadStatuses }),
+  createdAt: text("created_at").notNull(),
+  updatedAt: text("updated_at").notNull(),
 });

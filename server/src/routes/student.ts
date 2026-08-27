@@ -7,7 +7,7 @@ import { db } from "../db/client.js";
 import * as s from "../db/schema.js";
 import { requireAuth, requireRole, type AuthedRequest } from "../auth.js";
 import { checkAnswer, homeworkProgress, solutionAvailability, scoreSession } from "../lib/scoring.js";
-import { pstr } from "../lib/params.js";
+import { pstr, uploadName } from "../lib/params.js";
 
 export const studentRouter = Router();
 studentRouter.use(requireAuth, requireRole("student"));
@@ -222,7 +222,7 @@ studentRouter.post("/homework/:hwId/exercises/:exId/attachments", upload.array("
   const created = await Promise.all(files.map(async (f) => {
     const row = {
       id: randomUUID(), studentId, homeworkId: hwId, exerciseId: exId,
-      name: f.originalname, size: f.size, type: f.mimetype,
+      name: uploadName(f.originalname), size: f.size, type: f.mimetype,
       kind: /pdf/.test(f.mimetype) ? ("PDF" as const) : ("ФОТО" as const),
       filePath: f.path, createdAt: now(),
     };
