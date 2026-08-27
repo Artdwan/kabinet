@@ -16,6 +16,7 @@ import {
   Library,
   ListChecks,
   MessageSquareText,
+  TrendingUp,
   UsersRound,
   Users,
   Wallet,
@@ -46,6 +47,7 @@ export function navForRole(role: Role, badges: { homework?: number; review?: num
       { to: "/crm/students", label: "Ученики CRM", shortLabel: "Ученики CRM", icon: Baby },
       { to: "/crm/subscriptions", label: "Абонементы", shortLabel: "Абонементы", icon: Wallet },
       { to: "/crm/templates", label: "Шаблоны", shortLabel: "Шаблоны", icon: MessageSquareText },
+      { to: "/crm/ads", label: "Реклама", shortLabel: "Реклама", icon: TrendingUp },
     ];
   }
   if (role === "parent") {

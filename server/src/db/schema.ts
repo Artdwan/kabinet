@@ -535,3 +535,19 @@ export const templates = pgTable("templates", {
   createdAt: text("created_at").notNull(),
   updatedAt: text("updated_at").notNull(),
 });
+
+/// Рекламные расходы. Храним сумму в исходной валюте и курс на дату
+/// (Артур ставит его вручную по НБРБ), а не только пересчёт: курс потом
+/// не переписывается задним числом и расход остаётся сверяемым с кабинетом.
+export const adSpend = pgTable("ad_spend", {
+  id: text("id").primaryKey(),
+  teacherId: text("teacher_id").notNull().references(() => users.id),
+  spentOn: text("spent_on").notNull(), // YYYY-MM-DD
+  channel: text("channel").notNull().default(""),
+  amount: numeric("amount", { precision: 10, scale: 2 }).notNull(),
+  currency: text("currency", { enum: ["BYN", "USD"] }).notNull().default("BYN"),
+  /// Сколько BYN за единицу валюты. Для BYN — 1.
+  rate: numeric("rate", { precision: 10, scale: 4 }).notNull().default("1"),
+  note: text("note"),
+  createdAt: text("created_at").notNull(),
+});

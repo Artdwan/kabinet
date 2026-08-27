@@ -36,6 +36,7 @@ export function usePageTitle(): { title: string; crumbs: string[] } {
   if (path === "/crm/students") return { title: "Ученики", crumbs: ["CRM"] };
   if (path === "/crm/subscriptions") return { title: "Абонементы", crumbs: ["CRM"] };
   if (path === "/crm/templates") return { title: "Шаблоны ответов", crumbs: ["CRM"] };
+  if (path === "/crm/ads") return { title: "Реклама и показатели", crumbs: ["CRM"] };
   if (path === "/parent") return { title: "Прогресс ребёнка", crumbs: [] };
   if (path === "/parent/reports") return { title: "Отчёты", crumbs: [] };
   return { title: "Кабинет", crumbs: [] };

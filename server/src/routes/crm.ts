@@ -479,3 +479,108 @@ crmRouter.delete("/templates/:id", async (req: AuthedRequest, res) => {
     .where(and(eq(s.templates.id, pstr(req.params.id)), eq(s.templates.teacherId, teacherId)));
   res.json({ ok: true });
 });
+
+// ---------------------------------------------------------------------------
+// Реклама и показатели воронки
+// ---------------------------------------------------------------------------
+
+const bynOf = (amount: string, rate: string) => Number(amount) * Number(rate);
+
+crmRouter.get("/ad-spend", async (req: AuthedRequest, res) => {
+  const rows = await db
+    .select()
+    .from(s.adSpend)
+    .where(eq(s.adSpend.teacherId, req.auth!.sub))
+    .orderBy(desc(s.adSpend.spentOn));
+  res.json(
+    rows.map((r) => ({
+      ...r,
+      amount: Number(r.amount),
+      rate: Number(r.rate),
+      amountByn: bynOf(r.amount, r.rate),
+    })),
+  );
+});
+
+crmRouter.post("/ad-spend", async (req: AuthedRequest, res) => {
+  const spentOn = str(req.body?.spentOn);
+  const amount = str(req.body?.amount);
+  if (!spentOn || !amount) return res.status(400).json({ error: "Укажите дату и сумму" });
+
+  const currency = req.body?.currency === "USD" ? "USD" : "BYN";
+  // Для BYN курс всегда 1 — вводить его вручную незачем.
+  const rate = currency === "BYN" ? "1" : str(req.body?.rate);
+  if (currency === "USD" && (!rate || Number(rate) <= 0)) {
+    return res.status(400).json({ error: "Укажите курс НБРБ на дату расхода" });
+  }
+
+  const id = randomUUID();
+  await db.insert(s.adSpend).values({
+    id,
+    teacherId: req.auth!.sub,
+    spentOn,
+    channel: str(req.body?.channel),
+    amount,
+    currency,
+    rate,
+    note: str(req.body?.note) || null,
+    createdAt: now(),
+  });
+  res.json({ id });
+});
+
+crmRouter.delete("/ad-spend/:id", async (req: AuthedRequest, res) => {
+  await db
+    .delete(s.adSpend)
+    .where(and(eq(s.adSpend.id, pstr(req.params.id)), eq(s.adSpend.teacherId, req.auth!.sub)));
+  res.json({ ok: true });
+});
+
+/**
+ * Показатели за период. Считаются из фактических данных, а не из тарифов:
+ * лиды по дате создания, выручка по дате оплаты, расход по дате траты.
+ * Привязку выручки к конкретному объявлению Артур пока отложил, поэтому
+ * здесь только суммарные цифры за период.
+ */
+crmRouter.get("/stats", async (req: AuthedRequest, res) => {
+  const teacherId = req.auth!.sub;
+  const from = str(req.query?.from as string, "0000-01-01");
+  const to = str(req.query?.to as string, "9999-12-31");
+  const inRange = (d: string | null) => Boolean(d) && d! >= from && d! <= `${to}￿`;
+
+  const leads = await db.select().from(s.leads).where(eq(s.leads.teacherId, teacherId));
+  const clients = await db.select().from(s.clients).where(eq(s.clients.teacherId, teacherId));
+  const clientIds = new Set(clients.map((c) => c.id));
+  const students = (await db.select().from(s.crmStudents)).filter((st) => clientIds.has(st.clientId));
+  const studentIds = new Set(students.map((st) => st.id));
+  const subs = (await db.select().from(s.subscriptions)).filter((sub) => studentIds.has(sub.studentId));
+  const subIds = new Set(subs.map((sub) => sub.id));
+
+  const payments = (await db
+    .select({ id: s.payments.id, subscriptionId: s.payments.subscriptionId, amount: s.payments.amount, paidAt: s.payments.paidAt })
+    .from(s.payments)).filter((p) => subIds.has(p.subscriptionId));
+
+  const spend = await db.select().from(s.adSpend).where(eq(s.adSpend.teacherId, teacherId));
+
+  const leadsInPeriod = leads.filter((l) => inRange(l.createdAt));
+  const convertedInPeriod = clients.filter((c) => c.fromLeadId && inRange(c.createdAt));
+  const revenue = payments.filter((p) => inRange(p.paidAt)).reduce((sum, p) => sum + Number(p.amount), 0);
+  const spentByn = spend
+    .filter((r) => inRange(r.spentOn))
+    .reduce((sum, r) => sum + bynOf(r.amount, r.rate), 0);
+
+  res.json({
+    from,
+    to,
+    leads: leadsInPeriod.length,
+    // Квалифицированные — дошедшие до «Квалификации» и дальше.
+    qualified: leadsInPeriod.filter((l) => LEAD_STATUSES.indexOf(l.status) >= 2).length,
+    clients: convertedInPeriod.length,
+    revenue,
+    spentByn,
+    // CAC — сколько рекламы пришлось на одного нового клиента; ROAS — сколько
+    // выручки на рубль рекламы. Без расхода обе величины неопределены.
+    cac: convertedInPeriod.length && spentByn ? spentByn / convertedInPeriod.length : null,
+    roas: spentByn ? revenue / spentByn : null,
+  });
+});
