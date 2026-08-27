@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { api, ApiError } from "../../services/apiClient";
 import { useToast } from "../../services/ToastContext";
 import { Modal } from "../../components/Modal";
@@ -30,12 +30,48 @@ export function SubscriptionModal({
   const [lessonsCount, setLessonsCount] = useState("8");
   const [pricePerLesson, setPricePerLesson] = useState("15");
   const [discountPercent, setDiscountPercent] = useState("0");
+  const [monthlyPrice, setMonthlyPrice] = useState("");
+  const [suggestion, setSuggestion] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
 
   const fixed = students.find((s) => s.id === fixedStudentId);
 
+  // Подставляем цену из подходящего тарифа. Тарифов может не быть — тогда
+  // поля просто остаются на ручном вводе.
+  useEffect(() => {
+    if (!studentId || !subject) return;
+    let cancelled = false;
+    api
+      .get<{
+        tariffId: string | null;
+        name?: string;
+        mode?: "PER_LESSON" | "FIXED_MONTH";
+        isFirst: boolean;
+        pricePerLesson?: number | null;
+        monthlyPrice?: number | null;
+        discountPercent?: number;
+        lessonsPerMonth?: number | null;
+      }>(`/crm/tariffs/suggest?studentId=${studentId}&subject=${encodeURIComponent(subject)}`)
+      .then((t) => {
+        if (cancelled) return;
+        if (!t?.tariffId) {
+          setSuggestion(null);
+          return;
+        }
+        setMonthlyPrice(t.mode === "FIXED_MONTH" ? String(t.monthlyPrice ?? "") : "");
+        if (t.mode === "PER_LESSON") setPricePerLesson(String(t.pricePerLesson ?? ""));
+        setDiscountPercent(String(t.discountPercent ?? 0));
+        if (t.lessonsPerMonth) setLessonsCount(String(t.lessonsPerMonth));
+        setSuggestion(`${t.name} · ${t.isFirst ? "первый абонемент" : "со второго месяца"}`);
+      })
+      .catch(() => setSuggestion(null));
+    return () => {
+      cancelled = true;
+    };
+  }, [studentId, subject]);
+
   async function save() {
-    if (!studentId || !lessonsCount || !pricePerLesson) return;
+    if (!studentId || !lessonsCount || (!pricePerLesson && !monthlyPrice)) return;
     setBusy(true);
     try {
       await api.post("/crm/subscriptions", {
@@ -44,6 +80,7 @@ export function SubscriptionModal({
         periodStart,
         lessonsCount: Number(lessonsCount),
         pricePerLesson,
+        monthlyPrice,
         discountPercent: discountPercent || "0",
       });
       show("Абонемент добавлен", "ok");
@@ -88,6 +125,8 @@ export function SubscriptionModal({
         </div>
       )}
 
+      {suggestion && <p className="card-meta">Тариф: {suggestion}</p>}
+
       <div className="field">
         <label>Предмет</label>
         <select className="input" value={subject} onChange={(e) => setSubject(e.target.value)}>
@@ -104,17 +143,32 @@ export function SubscriptionModal({
         <label>Занятий</label>
         <input className="input" type="number" min="1" value={lessonsCount} onChange={(e) => setLessonsCount(e.target.value)} />
       </div>
-      <div className="field">
-        <label>Цена за занятие, BYN</label>
-        <input
-          className="input"
-          type="number"
-          min="0"
-          step="0.01"
-          value={pricePerLesson}
-          onChange={(e) => setPricePerLesson(e.target.value)}
-        />
-      </div>
+      {monthlyPrice ? (
+        <div className="field">
+          <label>Стоимость месяца, BYN</label>
+          <input
+            className="input"
+            type="number"
+            min="0"
+            step="0.01"
+            value={monthlyPrice}
+            onChange={(e) => setMonthlyPrice(e.target.value)}
+          />
+          <small className="card-meta">Фиксированная сумма — число занятий на неё не влияет.</small>
+        </div>
+      ) : (
+        <div className="field">
+          <label>Цена за занятие, BYN</label>
+          <input
+            className="input"
+            type="number"
+            min="0"
+            step="0.01"
+            value={pricePerLesson}
+            onChange={(e) => setPricePerLesson(e.target.value)}
+          />
+        </div>
+      )}
       <div className="field">
         <label>Скидка, %</label>
         <input

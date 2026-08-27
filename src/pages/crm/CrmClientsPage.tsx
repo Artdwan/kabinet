@@ -198,7 +198,7 @@ export function CrmClientsPage() {
               </div>
 
               {st.subscriptions.map((sub) => {
-                const total = subscriptionTotal(sub.lessonsCount, sub.pricePerLesson, sub.discountPercent);
+                const total = subscriptionTotal(sub);
                 const paid = paidTotal(sub.payments);
                 const status = paymentStatus(total, paid);
                 const left = remainingAmount(total, paid);

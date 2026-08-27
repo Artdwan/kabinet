@@ -63,7 +63,7 @@ export function CrmSubscriptionsPage() {
             </thead>
             <tbody>
               {subs.map((sub) => {
-                const total = subscriptionTotal(sub.lessonsCount, sub.pricePerLesson, sub.discountPercent);
+                const total = subscriptionTotal(sub);
                 const paid = paidTotal(sub.payments);
                 const status = paymentStatus(total, paid);
                 const withReceipt = sub.payments.filter((p) => p.hasReceipt);
@@ -77,7 +77,11 @@ export function CrmSubscriptionsPage() {
                     <td>{sub.subject}</td>
                     <td>{formatPeriod(sub.periodStart)}</td>
                     <td>{sub.lessonsCount}</td>
-                    <td>{formatBYN(sub.pricePerLesson)}</td>
+                    <td>
+                      {sub.monthlyPrice != null
+                        ? `${formatBYN(sub.monthlyPrice)} / мес`
+                        : formatBYN(sub.pricePerLesson)}
+                    </td>
                     <td>{sub.discountPercent > 0 ? `${sub.discountPercent}%` : "—"}</td>
                     <td>{formatBYN(total)}</td>
                     <td>{formatBYN(paid)}</td>

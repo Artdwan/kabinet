@@ -9,6 +9,7 @@ import { db } from "../db/client.js";
 import * as s from "../db/schema.js";
 import { requireAuth, requireRole, type AuthedRequest } from "../auth.js";
 import { pstr, uploadName } from "../lib/params.js";
+import { registerTariffRoutes } from "./crm-tariffs.js";
 
 export const crmRouter = Router();
 crmRouter.use(requireAuth, requireRole("teacher"));
@@ -172,6 +173,7 @@ async function clientsWithNested(teacherId: string) {
           .map((sub) => ({
             ...sub,
             pricePerLesson: Number(sub.pricePerLesson),
+            monthlyPrice: sub.monthlyPrice == null ? null : Number(sub.monthlyPrice),
             discountPercent: Number(sub.discountPercent),
             payments: pays
               .filter((p) => p.subscriptionId === sub.id)
@@ -313,6 +315,7 @@ crmRouter.get("/subscriptions", async (req: AuthedRequest, res) => {
         return {
           ...sub,
           pricePerLesson: Number(sub.pricePerLesson),
+          monthlyPrice: sub.monthlyPrice == null ? null : Number(sub.monthlyPrice),
           discountPercent: Number(sub.discountPercent),
           student: { id: st.id, name: st.name, grade: st.grade, client: { id: c.id, name: c.name } },
           payments: pays
@@ -337,8 +340,13 @@ crmRouter.post("/subscriptions", async (req: AuthedRequest, res) => {
   const period = str(req.body?.periodStart);
   const lessonsCount = Number(req.body?.lessonsCount);
   const pricePerLesson = str(req.body?.pricePerLesson);
-  if (!studentId || !subject || !period || !lessonsCount || !pricePerLesson) {
-    return res.status(400).json({ error: "Заполните ученика, предмет, период, количество занятий и цену" });
+  // Фиксированная стоимость месяца: если задана, число занятий остаётся
+  // справочным и в расчёт суммы не входит.
+  const monthlyPrice = str(req.body?.monthlyPrice) || null;
+  if (!studentId || !subject || !period || !lessonsCount || (!pricePerLesson && !monthlyPrice)) {
+    return res
+      .status(400)
+      .json({ error: "Заполните ученика, предмет, период, количество занятий и цену" });
   }
   const student = (await db.select().from(s.crmStudents).where(eq(s.crmStudents.id, studentId)).limit(1))[0];
   if (!student) return res.status(404).json({ error: "Ученик не найден" });
@@ -366,7 +374,8 @@ crmRouter.post("/subscriptions", async (req: AuthedRequest, res) => {
     subject,
     periodStart,
     lessonsCount,
-    pricePerLesson,
+    monthlyPrice,
+    pricePerLesson: pricePerLesson || "0",
     discountPercent: str(req.body?.discountPercent, "0"),
     createdAt: now(),
   });
@@ -584,3 +593,6 @@ crmRouter.get("/stats", async (req: AuthedRequest, res) => {
     roas: spentByn ? revenue / spentByn : null,
   });
 });
+
+// Тарифы и автосоздание абонементов — отдельным модулем.
+registerTariffRoutes(crmRouter);

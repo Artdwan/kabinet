@@ -25,11 +25,7 @@ export function PaymentModal({
   const { show } = useToast();
   const fileRef = useRef<HTMLInputElement>(null);
 
-  const total = subscriptionTotal(
-    subscription.lessonsCount,
-    subscription.pricePerLesson,
-    subscription.discountPercent,
-  );
+  const total = subscriptionTotal(subscription);
   const left = remainingAmount(total, paidTotal(subscription.payments));
 
   const [amount, setAmount] = useState(left > 0 ? left.toFixed(2) : "");

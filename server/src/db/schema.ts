@@ -504,6 +504,9 @@ export const subscriptions = pgTable(
     // Первое число месяца, YYYY-MM-DD.
     periodStart: text("period_start").notNull(),
     lessonsCount: integer("lessons_count").notNull(),
+    /// Если задана — стоимость месяца фиксированная, независимо от числа
+    /// занятий, и pricePerLesson в расчёте не участвует.
+    monthlyPrice: numeric("monthly_price", { precision: 10, scale: 2 }),
     pricePerLesson: numeric("price_per_lesson", { precision: 10, scale: 2 }).notNull(),
     discountPercent: numeric("discount_percent", { precision: 5, scale: 2 }).notNull().default("0"),
     createdAt: text("created_at").notNull(),
@@ -549,5 +552,34 @@ export const adSpend = pgTable("ad_spend", {
   /// Сколько BYN за единицу валюты. Для BYN — 1.
   rate: numeric("rate", { precision: 10, scale: 4 }).notNull().default("1"),
   note: text("note"),
+  createdAt: text("created_at").notNull(),
+});
+
+/// Тариф — правило ценообразования, которое Артур заводит сам. Цены не
+/// зашиты в код: у центра они меняются и зависят от предмета, класса и того,
+/// первый ли это абонемент ученика.
+///
+/// Класс ученика в CRM — свободный текст («9 класс»), поэтому диапазон
+/// задаётся числами, а из текста берётся первое число.
+export const tariffs = pgTable("tariffs", {
+  id: text("id").primaryKey(),
+  teacherId: text("teacher_id").notNull().references(() => users.id),
+  name: text("name").notNull(),
+  /// null — тариф подходит любому предмету.
+  subject: text("subject"),
+  gradeFrom: integer("grade_from"),
+  gradeTo: integer("grade_to"),
+  /// FIRST — только первый абонемент ученика, REPEAT — последующие, ANY — любой.
+  appliesTo: text("applies_to", { enum: ["FIRST", "REPEAT", "ANY"] }).notNull().default("ANY"),
+  /// PER_LESSON — цена за занятие × количество; FIXED_MONTH — фиксированная
+  /// сумма за месяц независимо от числа занятий.
+  mode: text("mode", { enum: ["PER_LESSON", "FIXED_MONTH"] }).notNull().default("PER_LESSON"),
+  pricePerLesson: numeric("price_per_lesson", { precision: 10, scale: 2 }),
+  monthlyPrice: numeric("monthly_price", { precision: 10, scale: 2 }),
+  discountPercent: numeric("discount_percent", { precision: 5, scale: 2 }).notNull().default("0"),
+  lessonsPerMonth: integer("lessons_per_month"),
+  active: boolean("active").notNull().default(true),
+  /// Меньше — выше приоритет при совпадении нескольких тарифов.
+  priority: integer("priority").notNull().default(100),
   createdAt: text("created_at").notNull(),
 });

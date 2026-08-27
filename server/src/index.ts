@@ -7,6 +7,7 @@ import { studentRouter } from "./routes/student.js";
 import { teacherRouter } from "./routes/teacher.js";
 import { parentRouter } from "./routes/parent.js";
 import { crmRouter } from "./routes/crm.js";
+import { startSubscriptionScheduler } from "./lib/scheduler.js";
 
 const app = express();
 
@@ -30,4 +31,5 @@ app.use((err: unknown, _req: express.Request, res: express.Response, _next: expr
 const PORT = Number(process.env.PORT) || 4000;
 app.listen(PORT, () => {
   console.log(`Kabinet API listening on :${PORT}`);
+  startSubscriptionScheduler();
 });

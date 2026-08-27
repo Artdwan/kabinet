@@ -33,6 +33,7 @@ import { CrmStudentsPage } from "./pages/crm/CrmStudentsPage";
 import { CrmSubscriptionsPage } from "./pages/crm/CrmSubscriptionsPage";
 import { CrmTemplatesPage } from "./pages/crm/CrmTemplatesPage";
 import { CrmAdsPage } from "./pages/crm/CrmAdsPage";
+import { CrmTariffsPage } from "./pages/crm/CrmTariffsPage";
 import { ParentHomePage } from "./pages/parent/ParentHomePage";
 import { ParentReportsPage } from "./pages/parent/ParentReportsPage";
 
@@ -94,6 +95,7 @@ function AppRoutes() {
         <Route path="crm/subscriptions" element={<CrmSubscriptionsPage />} />
         <Route path="crm/templates" element={<CrmTemplatesPage />} />
         <Route path="crm/ads" element={<CrmAdsPage />} />
+        <Route path="crm/tariffs" element={<CrmTariffsPage />} />
 
         <Route path="parent" element={<ParentHomePage />} />
         <Route path="parent/reports" element={<ParentReportsPage />} />

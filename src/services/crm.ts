@@ -55,6 +55,7 @@ export interface Subscription {
   lessonsCount: number;
   pricePerLesson: number;
   discountPercent: number;
+  monthlyPrice: number | null;
   payments: Payment[];
 }
 
@@ -101,8 +102,16 @@ export interface Template {
 
 // --- деньги ---------------------------------------------------------------
 
-export function subscriptionTotal(lessonsCount: number, pricePerLesson: number, discountPercent: number): number {
-  return lessonsCount * pricePerLesson * (1 - discountPercent / 100);
+/** Сумма абонемента: либо фиксированная за месяц, либо цена × занятия.
+ *  Скидка применяется в обоих случаях. */
+export function subscriptionTotal(sub: {
+  lessonsCount: number;
+  pricePerLesson: number;
+  discountPercent: number;
+  monthlyPrice: number | null;
+}): number {
+  const base = sub.monthlyPrice != null ? sub.monthlyPrice : sub.lessonsCount * sub.pricePerLesson;
+  return base * (1 - sub.discountPercent / 100);
 }
 
 export function paidTotal(payments: { amount: number }[]): number {
