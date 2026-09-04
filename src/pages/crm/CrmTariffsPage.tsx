@@ -30,6 +30,12 @@ const APPLIES_LABEL = {
 
 const SUBJECTS = ["Математика", "Химия", "ЦЭ / ЦТ"];
 
+interface RefundPolicy {
+  refundBasis: "SUBSCRIPTION" | "FULL";
+  withholdPercent: number;
+  withholdFixed: number;
+}
+
 const empty = {
   name: "",
   subject: "",
@@ -48,6 +54,7 @@ const empty = {
 export function CrmTariffsPage() {
   const { show } = useToast();
   const { data: tariffs = [], reload } = useApiData<Tariff[]>("/crm/tariffs");
+  const { data: policy, reload: reloadPolicy } = useApiData<RefundPolicy>("/crm/settings");
 
   const [open, setOpen] = useState(false);
   const [editing, setEditing] = useState<Tariff | null>(null);
@@ -183,6 +190,8 @@ export function CrmTariffsPage() {
           )}
         </div>
       )}
+
+      {policy && <RefundPolicyCard policy={policy} onSaved={reloadPolicy} />}
 
       <div className="card" style={{ padding: 0, overflowX: "auto" }}>
         <table className="table">
@@ -320,6 +329,62 @@ export function CrmTariffsPage() {
           </label>
         </Modal>
       )}
+    </div>
+  );
+}
+
+/** Политика возврата при досрочном прекращении абонемента. */
+function RefundPolicyCard({ policy, onSaved }: { policy: RefundPolicy; onSaved: () => void }) {
+  const { show } = useToast();
+  const [basis, setBasis] = useState(policy.refundBasis);
+  const [percent, setPercent] = useState(String(policy.withholdPercent));
+  const [fixed, setFixed] = useState(String(policy.withholdFixed));
+  const [busy, setBusy] = useState(false);
+
+  const dirty =
+    basis !== policy.refundBasis ||
+    Number(percent) !== policy.withholdPercent ||
+    Number(fixed) !== policy.withholdFixed;
+
+  async function save() {
+    setBusy(true);
+    try {
+      await api.patch("/crm/settings", { refundBasis: basis, withholdPercent: percent, withholdFixed: fixed });
+      onSaved();
+      show("Правила возврата сохранены", "ok");
+    } catch (e) {
+      show(e instanceof ApiError ? e.message : "Не удалось сохранить правила", "bad");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <div className="card">
+      <div className="card-title">Возврат при досрочном прекращении</div>
+      <p className="card-meta">
+        По этим правилам CRM считает возврат, а сумму вы подтверждаете вручную в разделе «Абонементы».
+      </p>
+      <div style={{ display: "flex", gap: 10, flexWrap: "wrap", alignItems: "flex-end" }}>
+        <div className="field" style={{ margin: 0, minWidth: 260 }}>
+          <label>Проведённые занятия засчитываются</label>
+          <select className="input" value={basis} onChange={(e) => setBasis(e.target.value as RefundPolicy["refundBasis"])}>
+            <option value="SUBSCRIPTION">По цене абонемента (со скидкой)</option>
+            <option value="FULL">По полной цене (скидка не сохраняется)</option>
+          </select>
+        </div>
+        <div className="field" style={{ margin: 0 }}>
+          <label>Удержать, %</label>
+          <input className="input" type="number" min="0" max="100" value={percent} onChange={(e) => setPercent(e.target.value)} />
+        </div>
+        <div className="field" style={{ margin: 0 }}>
+          <label>Удержать, BYN</label>
+          <input className="input" type="number" min="0" step="0.01" value={fixed} onChange={(e) => setFixed(e.target.value)} />
+        </div>
+        <button className="btn btn-secondary" disabled={busy || !dirty} onClick={save}>
+          Сохранить правила
+        </button>
+      </div>
     </div>
   );
 }

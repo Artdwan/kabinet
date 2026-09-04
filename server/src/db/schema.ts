@@ -504,6 +504,9 @@ export const subscriptions = pgTable(
     // Первое число месяца, YYYY-MM-DD.
     periodStart: text("period_start").notNull(),
     lessonsCount: integer("lessons_count").notNull(),
+    /// Дата досрочного прекращения. Такой абонемент не переносится на
+    /// следующий месяц автогенерацией.
+    terminatedAt: text("terminated_at"),
     /// Если задана — стоимость месяца фиксированная, независимо от числа
     /// занятий, и pricePerLesson в расчёте не участвует.
     monthlyPrice: numeric("monthly_price", { precision: 10, scale: 2 }),
@@ -581,5 +584,35 @@ export const tariffs = pgTable("tariffs", {
   active: boolean("active").notNull().default(true),
   /// Меньше — выше приоритет при совпадении нескольких тарифов.
   priority: integer("priority").notNull().default(100),
+  createdAt: text("created_at").notNull(),
+});
+
+/// Настройки CRM одного преподавателя. Пока здесь только политика возврата:
+/// правила Артур не задавал, поэтому они настраиваемые, а не зашиты в код.
+export const crmSettings = pgTable("crm_settings", {
+  teacherId: text("teacher_id").primaryKey().references(() => users.id),
+  /// По какой цене засчитываются проведённые занятия при возврате.
+  /// SUBSCRIPTION — по цене абонемента (со скидкой), FULL — по полной, то
+  /// есть скидка первого месяца при досрочном уходе не сохраняется.
+  refundBasis: text("refund_basis", { enum: ["SUBSCRIPTION", "FULL"] }).notNull().default("SUBSCRIPTION"),
+  /// Удержание: процент от возврата и/или фиксированная сумма.
+  withholdPercent: numeric("withhold_percent", { precision: 5, scale: 2 }).notNull().default("0"),
+  withholdFixed: numeric("withhold_fixed", { precision: 10, scale: 2 }).notNull().default("0"),
+  updatedAt: text("updated_at").notNull(),
+});
+
+/// Возврат по досрочно прекращённому абонементу. Хранится вместе с расчётом:
+/// сколько занятий зачли, по какой цене и сколько удержали — чтобы потом
+/// можно было объяснить сумму, а не пересчитывать её заново.
+export const refunds = pgTable("refunds", {
+  id: text("id").primaryKey(),
+  subscriptionId: text("subscription_id").notNull().unique().references(() => subscriptions.id, { onDelete: "cascade" }),
+  lessonsUsed: integer("lessons_used").notNull(),
+  usedCost: numeric("used_cost", { precision: 10, scale: 2 }).notNull(),
+  paidAmount: numeric("paid_amount", { precision: 10, scale: 2 }).notNull(),
+  withheld: numeric("withheld", { precision: 10, scale: 2 }).notNull(),
+  amount: numeric("amount", { precision: 10, scale: 2 }).notNull(),
+  basis: text("basis", { enum: ["SUBSCRIPTION", "FULL"] }).notNull(),
+  note: text("note"),
   createdAt: text("created_at").notNull(),
 });

@@ -56,6 +56,8 @@ export interface Subscription {
   pricePerLesson: number;
   discountPercent: number;
   monthlyPrice: number | null;
+  terminatedAt: string | null;
+  refund: { amount: number; lessonsUsed: number; withheld: number } | null;
   payments: Payment[];
 }
 

@@ -1,5 +1,5 @@
 import { useMemo, useState } from "react";
-import { Paperclip, Plus } from "lucide-react";
+import { CircleSlash, Paperclip, Plus } from "lucide-react";
 import { useApiData } from "../../services/useApiData";
 import {
   PAYMENT_STATUS_LABEL,
@@ -16,6 +16,7 @@ import {
 } from "../../services/crm";
 import { SubscriptionModal } from "./SubscriptionModal";
 import { PaymentModal } from "./PaymentModal";
+import { RefundModal } from "./RefundModal";
 
 export function CrmSubscriptionsPage() {
   const { data: subs = [], reload } = useApiData<SubscriptionRow[]>("/crm/subscriptions");
@@ -23,6 +24,7 @@ export function CrmSubscriptionsPage() {
 
   const [createOpen, setCreateOpen] = useState(false);
   const [payFor, setPayFor] = useState<SubscriptionRow | null>(null);
+  const [refundFor, setRefundFor] = useState<SubscriptionRow | null>(null);
 
   const options = useMemo(
     () => students.map((s) => ({ id: s.id, name: s.name, grade: s.grade, clientName: s.client.name })),
@@ -87,7 +89,16 @@ export function CrmSubscriptionsPage() {
                     <td>{formatBYN(paid)}</td>
                     <td>{formatBYN(remainingAmount(total, paid))}</td>
                     <td>
-                      <span className={PAYMENT_STATUS_TAG[status]}>{PAYMENT_STATUS_LABEL[status]}</span>
+                      {sub.terminatedAt ? (
+                        <>
+                          <span className="tag tag-neutral">Прекращён</span>
+                          {sub.refund && (
+                            <div className="card-meta">возврат {formatBYN(sub.refund.amount)}</div>
+                          )}
+                        </>
+                      ) : (
+                        <span className={PAYMENT_STATUS_TAG[status]}>{PAYMENT_STATUS_LABEL[status]}</span>
+                      )}
                     </td>
                     <td style={{ whiteSpace: "nowrap" }}>
                       {withReceipt.map((p) => (
@@ -95,9 +106,18 @@ export function CrmSubscriptionsPage() {
                           <Paperclip size={12} />
                         </button>
                       ))}
-                      {status !== "PAID" && (
+                      {!sub.terminatedAt && status !== "PAID" && (
                         <button className="btn btn-secondary btn-sm" onClick={() => setPayFor(sub)}>
                           <Plus size={12} /> Оплата
+                        </button>
+                      )}
+                      {!sub.terminatedAt && (
+                        <button
+                          className="btn btn-ghost btn-sm"
+                          title="Досрочно прекратить и рассчитать возврат"
+                          onClick={() => setRefundFor(sub)}
+                        >
+                          <CircleSlash size={12} />
                         </button>
                       )}
                     </td>
@@ -122,6 +142,17 @@ export function CrmSubscriptionsPage() {
             setCreateOpen(false);
             reload();
             reloadStudents();
+          }}
+        />
+      )}
+
+      {refundFor && (
+        <RefundModal
+          subscription={refundFor}
+          onClose={() => setRefundFor(null)}
+          onSaved={() => {
+            setRefundFor(null);
+            reload();
           }}
         />
       )}

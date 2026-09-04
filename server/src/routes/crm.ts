@@ -10,6 +10,7 @@ import * as s from "../db/schema.js";
 import { requireAuth, requireRole, type AuthedRequest } from "../auth.js";
 import { pstr, uploadName } from "../lib/params.js";
 import { registerTariffRoutes } from "./crm-tariffs.js";
+import { registerRefundRoutes } from "./crm-refunds.js";
 
 export const crmRouter = Router();
 crmRouter.use(requireAuth, requireRole("teacher"));
@@ -174,6 +175,7 @@ async function clientsWithNested(teacherId: string) {
             ...sub,
             pricePerLesson: Number(sub.pricePerLesson),
             monthlyPrice: sub.monthlyPrice == null ? null : Number(sub.monthlyPrice),
+            terminatedAt: sub.terminatedAt,
             discountPercent: Number(sub.discountPercent),
             payments: pays
               .filter((p) => p.subscriptionId === sub.id)
@@ -295,6 +297,9 @@ crmRouter.get("/subscriptions", async (req: AuthedRequest, res) => {
   const studentById = new Map(students.map((st) => [st.id, st]));
 
   const subs = (await db.select().from(s.subscriptions)).filter((sub) => studentById.has(sub.studentId));
+  const refundRows = await db.select().from(s.refunds);
+  const refundBySub = new Map(refundRows.map((r) => [r.subscriptionId, r]));
+
   const pays = await db
     .select({
       id: s.payments.id,
@@ -316,7 +321,12 @@ crmRouter.get("/subscriptions", async (req: AuthedRequest, res) => {
           ...sub,
           pricePerLesson: Number(sub.pricePerLesson),
           monthlyPrice: sub.monthlyPrice == null ? null : Number(sub.monthlyPrice),
+          terminatedAt: sub.terminatedAt,
           discountPercent: Number(sub.discountPercent),
+          refund: (() => {
+            const r = refundBySub.get(sub.id);
+            return r ? { amount: Number(r.amount), lessonsUsed: r.lessonsUsed, withheld: Number(r.withheld) } : null;
+          })(),
           student: { id: st.id, name: st.name, grade: st.grade, client: { id: c.id, name: c.name } },
           payments: pays
             .filter((p) => p.subscriptionId === sub.id)
@@ -596,3 +606,6 @@ crmRouter.get("/stats", async (req: AuthedRequest, res) => {
 
 // Тарифы и автосоздание абонементов — отдельным модулем.
 registerTariffRoutes(crmRouter);
+
+// Перерасчёт и возврат при досрочном прекращении.
+registerRefundRoutes(crmRouter);

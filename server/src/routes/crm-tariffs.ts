@@ -103,6 +103,8 @@ export async function generateNextMonth(teacherId: string, period: string) {
   let skipped = 0;
 
   for (const prev of latest.values()) {
+    // Досрочно прекращённый абонемент на следующий месяц не переносится.
+    if (prev.terminatedAt) continue;
     if (prev.periodStart >= period) {
       skipped++;
       continue;
