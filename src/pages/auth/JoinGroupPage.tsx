@@ -26,7 +26,7 @@ export function JoinGroupPage() {
   if (!account) return <Navigate to={`/auth?joinGroup=${groupId}`} replace />;
 
   return (
-    <div style={{ minHeight: "100vh", display: "grid", placeItems: "center", padding: 24 }}>
+    <div style={{ minHeight: "var(--vh)", display: "grid", placeItems: "center", padding: 24 }}>
       <div className="card elev-lg" style={{ width: "min(440px, 100%)", padding: "30px 28px", textAlign: "center" }}>
         {account.role !== "student" ? (
           <>

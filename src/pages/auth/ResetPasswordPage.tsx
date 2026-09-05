@@ -35,7 +35,7 @@ export function ResetPasswordPage() {
   };
 
   return (
-    <div style={{ minHeight: "100vh", display: "grid", placeItems: "center", padding: 24 }}>
+    <div style={{ minHeight: "var(--vh)", display: "grid", placeItems: "center", padding: 24 }}>
       <div className="card elev-lg" style={{ width: "min(440px, 100%)", padding: "34px 32px", gap: 18 }}>
         <div>
           <div style={{ fontFamily: "var(--font-ui)", fontSize: 11, letterSpacing: "0.16em", textTransform: "uppercase", color: "var(--color-accent)" }}>

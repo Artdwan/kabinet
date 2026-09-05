@@ -60,7 +60,7 @@ export function InviteRegisterPage() {
   };
 
   return (
-    <div style={{ minHeight: "100vh", display: "grid", placeItems: "center", padding: 24 }}>
+    <div style={{ minHeight: "var(--vh)", display: "grid", placeItems: "center", padding: 24 }}>
       <div className="card elev-lg" style={{ width: "min(480px, 100%)", padding: "30px 28px" }}>
         {invite === null ? (
           <p className="card-body">Загрузка приглашения…</p>

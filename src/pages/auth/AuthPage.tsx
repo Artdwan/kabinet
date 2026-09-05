@@ -89,7 +89,7 @@ export function AuthPage() {
   };
 
   return (
-    <div style={{ minHeight: "100vh", display: "grid", placeItems: "center", padding: 24 }}>
+    <div style={{ minHeight: "var(--vh)", display: "grid", placeItems: "center", padding: 24 }}>
       <div
         className="card elev-lg"
         style={{ width: "min(520px, 100%)", padding: "34px 32px", gap: 18 }}

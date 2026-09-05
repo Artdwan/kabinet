@@ -461,7 +461,7 @@ export function TeacherCalendarPage() {
   const fitToViewport = view === "day" || view === "week";
 
   return (
-    <div style={{ display: "flex", gap: 20, alignItems: "stretch", height: fitToViewport ? "calc(100vh - 156px)" : undefined, minHeight: fitToViewport ? 480 : undefined }}>
+    <div style={{ display: "flex", gap: 20, alignItems: "stretch", height: fitToViewport ? "calc(var(--vh) - 156px)" : undefined, minHeight: fitToViewport ? 480 : undefined }}>
       <aside style={{ width: 220, flex: "none", display: "flex", flexDirection: "column", gap: 16, alignSelf: "flex-start" }}>
         <div className="card" style={{ padding: 12 }}>
           <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 8 }}>
