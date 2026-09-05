@@ -7,6 +7,7 @@ import { studentRouter } from "./routes/student.js";
 import { teacherRouter } from "./routes/teacher.js";
 import { parentRouter } from "./routes/parent.js";
 import { crmRouter } from "./routes/crm.js";
+import { agentRouter } from "./routes/agent.js";
 import { startSubscriptionScheduler } from "./lib/scheduler.js";
 
 const app = express();
@@ -22,6 +23,7 @@ app.use("/api/student", studentRouter);
 app.use("/api/teacher", teacherRouter);
 app.use("/api/parent", parentRouter);
 app.use("/api/crm", crmRouter);
+app.use("/api/agent", agentRouter);
 
 app.use((err: unknown, _req: express.Request, res: express.Response, _next: express.NextFunction) => {
   console.error(err);

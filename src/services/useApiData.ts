@@ -1,11 +1,29 @@
-import { useEffect, useState, useCallback } from "react";
+import { useEffect, useState, useCallback, useSyncExternalStore } from "react";
 import { api } from "./apiClient";
+
+// Общий счётчик обновлений: помощник меняет данные из панели, а перерисовать
+// нужно страницу под ней. Перезагружать браузер ради этого не годится —
+// закрылась бы сама панель вместе с перепиской.
+let revision = 0;
+const listeners = new Set<() => void>();
+
+export function refreshAllApiData() {
+  revision += 1;
+  listeners.forEach((fn) => fn());
+}
+
+function subscribe(fn: () => void) {
+  listeners.add(fn);
+  return () => listeners.delete(fn);
+}
+
 
 export function useApiData<T>(path: string, deps: unknown[] = []): { data: T | undefined; loading: boolean; error: string | null; reload: () => void } {
   const [data, setData] = useState<T | undefined>(undefined);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [tick, setTick] = useState(0);
+  const globalRevision = useSyncExternalStore(subscribe, () => revision);
 
   const load = useCallback(() => {
     if (!path) {
@@ -28,7 +46,7 @@ export function useApiData<T>(path: string, deps: unknown[] = []): { data: T | u
   useEffect(() => {
     load();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [path, tick, ...deps]);
+  }, [path, tick, globalRevision, ...deps]);
 
   const reload = useCallback(() => setTick((t) => t + 1), []);
 

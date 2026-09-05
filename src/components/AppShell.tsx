@@ -1,6 +1,6 @@
 import { Fragment, useEffect, useMemo, useState } from "react";
 import { Link, NavLink, Outlet, useLocation, useNavigate } from "react-router-dom";
-import { Bell, ChevronDown, LogOut, Settings as SettingsIcon } from "lucide-react";
+import { Bell, Bot, ChevronDown, LogOut, Settings as SettingsIcon } from "lucide-react";
 import { useStore } from "../services/StoreContext";
 import { useActions } from "../services/actions";
 import { navForRole } from "./nav";
@@ -8,6 +8,8 @@ import { HOMEWORKS } from "../data/content";
 import { fmtDate, homeworkProgress } from "../services/mockApi";
 import { usePageTitle } from "./usePageTitle";
 import { api } from "../services/apiClient";
+import { AgentPanel } from "./AgentPanel";
+import { refreshAllApiData } from "../services/useApiData";
 
 export function AppShell() {
   const { store, account, logout } = useStore();
@@ -52,6 +54,9 @@ export function AppShell() {
     if ((kind === "feedback" || kind === "assign") && homeworkId) navigate(`/homework/${homeworkId}`);
     else navigate("/homework");
   };
+
+  // Помощник — только у преподавателя: заводит учеников, группы и занятия.
+  const [agentOpen, setAgentOpen] = useState(false);
 
   const initials = `${account?.name?.[0] || ""}${account?.lastName?.[0] || ""}`;
 
@@ -329,6 +334,18 @@ export function AppShell() {
           </NavLink>
         ))}
       </nav>
+
+      {account?.role === "teacher" && !agentOpen && (
+        <button className="agent-fab" onClick={() => setAgentOpen(true)}>
+          <Bot size={15} /> Помощник
+        </button>
+      )}
+      {account?.role === "teacher" && agentOpen && (
+        <AgentPanel
+          onClose={() => setAgentOpen(false)}
+          onChanged={refreshAllApiData}
+        />
+      )}
     </div>
   );
 }
