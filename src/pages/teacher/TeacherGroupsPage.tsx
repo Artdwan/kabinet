@@ -951,33 +951,40 @@ export function TeacherGroupsPage() {
               <input className="input" value={form.description} onChange={(e) => setForm((f) => ({ ...f, description: e.target.value }))} placeholder="Например, подготовка к ЦТ, вечерняя группа" />
             </div>
 
-            <div className="card-title" style={{ fontSize: 13.5, marginTop: 4 }}>Настройки ДЗ по умолчанию</div>
-            <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
-              <div className="field" style={{ minWidth: 160 }}>
-                <label>Срок выполнения, дней</label>
-                <input className="input" type="number" min={1} value={form.hw.dueDays} onChange={(e) => setForm((f) => ({ ...f, hw: { ...f.hw, dueDays: e.target.value } }))} />
+            {/* При создании группы блок скрыт: значения по умолчанию подходят
+               почти всегда, а форма и без них длинная. Настраивается при
+               редактировании, когда группа уже создана. */}
+            {editingId && (
+              <>
+              <div className="card-title" style={{ fontSize: 13.5, marginTop: 4 }}>Настройки ДЗ по умолчанию</div>
+              <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
+                <div className="field" style={{ minWidth: 160 }}>
+                  <label>Срок выполнения, дней</label>
+                  <input className="input" type="number" min={1} value={form.hw.dueDays} onChange={(e) => setForm((f) => ({ ...f, hw: { ...f.hw, dueDays: e.target.value } }))} />
+                </div>
+                <div className="field" style={{ minWidth: 160 }}>
+                  <label>Попыток на задание</label>
+                  <input className="input" type="number" min={1} value={form.hw.maxAttempts} onChange={(e) => setForm((f) => ({ ...f, hw: { ...f.hw, maxAttempts: e.target.value } }))} />
+                </div>
+                <div className="field" style={{ flex: 1, minWidth: 200 }}>
+                  <label>Показывать решения</label>
+                  <select className="input" value={form.hw.showSolutions} onChange={(e) => setForm((f) => ({ ...f, hw: { ...f.hw, showSolutions: e.target.value as HwDefaults["showSolutions"] } }))}>
+                    <option value="after_due">После срока сдачи</option>
+                    <option value="after_submit">После сдачи ответа</option>
+                    <option value="manual">Только вручную</option>
+                  </select>
+                </div>
               </div>
-              <div className="field" style={{ minWidth: 160 }}>
-                <label>Попыток на задание</label>
-                <input className="input" type="number" min={1} value={form.hw.maxAttempts} onChange={(e) => setForm((f) => ({ ...f, hw: { ...f.hw, maxAttempts: e.target.value } }))} />
-              </div>
-              <div className="field" style={{ flex: 1, minWidth: 200 }}>
-                <label>Показывать решения</label>
-                <select className="input" value={form.hw.showSolutions} onChange={(e) => setForm((f) => ({ ...f, hw: { ...f.hw, showSolutions: e.target.value as HwDefaults["showSolutions"] } }))}>
-                  <option value="after_due">После срока сдачи</option>
-                  <option value="after_submit">После сдачи ответа</option>
-                  <option value="manual">Только вручную</option>
-                </select>
-              </div>
-            </div>
-            <label style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 13.5 }}>
-              <input type="checkbox" checked={form.hw.hintsAllowed} onChange={(e) => setForm((f) => ({ ...f, hw: { ...f.hw, hintsAllowed: e.target.checked } }))} />
-              Разрешить подсказки
-            </label>
-            <label style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 13.5 }}>
-              <input type="checkbox" checked={form.hw.remindersEnabled} onChange={(e) => setForm((f) => ({ ...f, hw: { ...f.hw, remindersEnabled: e.target.checked } }))} />
-              Отправлять напоминания о дедлайне
-            </label>
+              <label style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 13.5 }}>
+                <input type="checkbox" checked={form.hw.hintsAllowed} onChange={(e) => setForm((f) => ({ ...f, hw: { ...f.hw, hintsAllowed: e.target.checked } }))} />
+                Разрешить подсказки
+              </label>
+              <label style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 13.5 }}>
+                <input type="checkbox" checked={form.hw.remindersEnabled} onChange={(e) => setForm((f) => ({ ...f, hw: { ...f.hw, remindersEnabled: e.target.checked } }))} />
+                Отправлять напоминания о дедлайне
+              </label>
+              </>
+            )}
           </div>
         </Modal>
       )}
