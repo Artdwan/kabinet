@@ -30,3 +30,6 @@ server/data
 *.njsproj
 *.sln
 *.sw?
+
+# Резервные копии базы лежат рядом с проектом, не в нём
+/kabinet-backups/
