@@ -1,3 +1,6 @@
+/* Пороги умножены на --ui-scale (1.5): media-запросы сравниваются с настоящей
+   шириной окна, а макет после zoom видит её в 1.5 раза меньше. Меняете масштаб —
+   пересчитайте и эти числа. */
 [data-shell] {
   display: grid;
   grid-template-columns: var(--sidebar-w) minmax(0, 1fr);
@@ -43,7 +46,7 @@
   margin: 0 auto;
 }
 
-@media (max-width: 1080px) {
+@media (max-width: 1620px) {
   [data-shell] {
     grid-template-columns: var(--sidebar-w-collapsed) minmax(0, 1fr);
   }
@@ -59,7 +62,7 @@
   }
 }
 
-@media (max-width: 720px) {
+@media (max-width: 1080px) {
   [data-shell] {
     grid-template-columns: minmax(0, 1fr);
   }

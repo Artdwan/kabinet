@@ -1,3 +1,6 @@
+/* Пороги умножены на --ui-scale (1.5): media-запросы сравниваются с настоящей
+   шириной окна, а макет после zoom видит её в 1.5 раза меньше. Меняете масштаб —
+   пересчитайте и эти числа. */
 /* Buttons ------------------------------------------------------------- */
 .btn {
   display: inline-flex;
@@ -318,6 +321,13 @@ textarea.input {
 }
 
 /* Tables --------------------------------------------------------------------- */
+/* Широкая таблица прокручивается внутри себя, а не тянет вбок всю страницу.
+   Стало заметно при --ui-scale: 1.5 — колонок больше, чем помещается. */
+.table {
+  display: block;
+  overflow-x: auto;
+}
+
 .table {
   width: 100%;
   border-collapse: collapse;
@@ -549,7 +559,7 @@ textarea.input {
 .agent-input textarea { resize: none; font-size: 13px; }
 .agent-input .btn { align-self: flex-end; }
 
-@media (max-width: 640px) {
+@media (max-width: 960px) {
   .agent-panel { width: 100vw; }
   .agent-fab { right: 14px; bottom: 76px; }
 }
