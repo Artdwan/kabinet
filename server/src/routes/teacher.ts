@@ -117,13 +117,21 @@ teacherRouter.get("/groups/:id", async (req: AuthedRequest, res) => {
     (await db.select().from(s.homeworkAttempts).where(eq(s.homeworkAttempts.studentId, id))).forEach((a) => {
       statuses[a.exerciseId] = a.status;
     });
-    const progress = homeworkProgress(allExerciseIds, statuses);
+    // Задания в базе общие для всех. Ученику принадлежат только те, что ему
+    // действительно достались, — иначе новичок получает чужие работы, все
+    // просроченные, в первую же секунду.
+    const myHomeworkIds = await studentHomeworkIds(id);
+    const myExerciseIds = allHomeworks
+      .filter((hw) => myHomeworkIds.has(hw.id))
+      .flatMap((hw) => (hw.sections as any[]).filter((sc) => sc.kind === "exercises").flatMap((sc) => sc.exercises.map((e: any) => e.id)));
+    const progress = homeworkProgress(myExerciseIds, statuses);
 
     const attempts = (await db.select().from(s.homeworkAttempts).where(eq(s.homeworkAttempts.studentId, id)));
     const lastActive = attempts.reduce((max, a) => (a.updatedAt > max ? a.updatedAt : max), "");
 
     const states = (await db.select().from(s.homeworkState).where(eq(s.homeworkState.studentId, id)));
     const overdue = allHomeworks.filter((hw) => {
+      if (!myHomeworkIds.has(hw.id)) return false;
       const st = states.find((x) => x.homeworkId === hw.id);
       return hw.dueAt < today && !st?.submittedAt;
     }).length;
@@ -985,11 +993,26 @@ teacherRouter.post("/lessons/:id/attendance", async (req: AuthedRequest, res) =>
   res.json({ ok: true });
 });
 
+/**
+ * Работы, которые действительно достались ученику. Таблица заданий общая для
+ * всех, и без этого фильтра любой новый ученик мгновенно получает весь список
+ * чужих работ — просроченных, потому что сроки у них давние.
+ *
+ * Принадлежность определяется по следу: есть состояние работы или попытки.
+ * Отдельной выдачи заданий в приложении пока нет.
+ */
+async function studentHomeworkIds(studentId: string): Promise<Set<string>> {
+  const [states, attempts] = await Promise.all([
+    db.select({ homeworkId: s.homeworkState.homeworkId }).from(s.homeworkState).where(eq(s.homeworkState.studentId, studentId)),
+    db.select({ homeworkId: s.homeworkAttempts.homeworkId }).from(s.homeworkAttempts).where(eq(s.homeworkAttempts.studentId, studentId)),
+  ]);
+  return new Set([...states.map((x) => x.homeworkId), ...attempts.map((a) => a.homeworkId)]);
+}
+
 teacherRouter.get("/roster", async (req: AuthedRequest, res) => {
   const teacherId = req.auth!.sub;
   const studentIds = await teacherStudentIds(teacherId);
   const allHomeworks = (await db.select().from(s.homeworks));
-  const allExerciseIds = allHomeworks.flatMap((hw) => (hw.sections as any[]).filter((sc) => sc.kind === "exercises").flatMap((sc) => sc.exercises.map((e: any) => e.id)));
   const today = new Date().toISOString().slice(0, 10);
   const myGroups = (await db.select().from(s.groups).where(eq(s.groups.teacherId, teacherId)));
 
@@ -1003,13 +1026,19 @@ teacherRouter.get("/roster", async (req: AuthedRequest, res) => {
     (await db.select().from(s.homeworkAttempts).where(eq(s.homeworkAttempts.studentId, id))).forEach((a) => {
       statuses[a.exerciseId] = a.status;
     });
-    const progress = homeworkProgress(allExerciseIds, statuses);
+    // Задания общие для всех — считаем только те, что достались этому ученику.
+    const myHomeworkIds = await studentHomeworkIds(id);
+    const myExerciseIds = allHomeworks
+      .filter((hw) => myHomeworkIds.has(hw.id))
+      .flatMap((hw) => (hw.sections as any[]).filter((sc) => sc.kind === "exercises").flatMap((sc) => sc.exercises.map((e: any) => e.id)));
+    const progress = homeworkProgress(myExerciseIds, statuses);
 
     const attempts = (await db.select().from(s.homeworkAttempts).where(eq(s.homeworkAttempts.studentId, id)));
     const lastActive = attempts.reduce((max, a) => (a.updatedAt > max ? a.updatedAt : max), "");
 
     const states = (await db.select().from(s.homeworkState).where(eq(s.homeworkState.studentId, id)));
     const overdue = allHomeworks.filter((hw) => {
+      if (!myHomeworkIds.has(hw.id)) return false;
       const st = states.find((x) => x.homeworkId === hw.id);
       return hw.dueAt < today && !st?.submittedAt;
     }).length;
@@ -1114,7 +1143,8 @@ teacherRouter.get("/students/:id", async (req: AuthedRequest, res) => {
   const attempts = (await db.select().from(s.homeworkAttempts).where(eq(s.homeworkAttempts.studentId, studentId)));
   const today = new Date().toISOString().slice(0, 10);
 
-  const homeworks = allHomeworks.map((hw) => {
+  const mine = new Set([...states.map((x) => x.homeworkId), ...attempts.map((a) => a.homeworkId)]);
+  const homeworks = allHomeworks.filter((hw) => mine.has(hw.id)).map((hw) => {
     const exerciseIds = (hw.sections as any[]).filter((sc) => sc.kind === "exercises").flatMap((sc) => sc.exercises.map((e: any) => e.id));
     const statuses: Record<string, ExerciseStatus> = {};
     attempts.filter((a) => a.homeworkId === hw.id).forEach((a) => { statuses[a.exerciseId] = a.status; });

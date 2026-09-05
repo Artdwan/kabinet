@@ -228,6 +228,11 @@ export function TeacherStudentProfilePage() {
                 <td><StatusBadge status={h.status} /></td>
               </tr>
             ))}
+            {profile.homeworks.length === 0 && (
+              <tr>
+                <td colSpan={4}>Работ пока нет — ученику ничего не выдавали.</td>
+              </tr>
+            )}
           </tbody>
         </table>
       )}

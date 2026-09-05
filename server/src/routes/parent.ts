@@ -35,7 +35,10 @@ parentRouter.get("/child/progress", async (req: AuthedRequest, res) => {
   const states = (await db.select().from(s.homeworkState).where(eq(s.homeworkState.studentId, studentId)));
   const stateMap = new Map(states.map((st) => [st.homeworkId, st]));
 
-  const homeworkProgressList = homeworks.map((hw) => {
+  // Задания в базе общие для всех — родителю показываем только те, что
+  // действительно достались его ребёнку.
+  const mine = new Set([...states.map((x) => x.homeworkId), ...attempts.map((x) => x.homeworkId)]);
+  const homeworkProgressList = homeworks.filter((hw) => mine.has(hw.id)).map((hw) => {
     const ids = (hw.sections as any[]).filter((sc) => sc.kind === "exercises").flatMap((sc) => sc.exercises.map((e: any) => e.id));
     const statuses: Record<string, ExerciseStatus> = {};
     attempts.filter((a) => a.homeworkId === hw.id).forEach((a) => { statuses[a.exerciseId] = a.status; });
